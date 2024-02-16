@@ -72,6 +72,7 @@ def load_config(args):
     """
     # Setup cfg.
     cfg = get_cfg()
+    cfg.set_new_allowed(True)  # Add this line to fix issues with egoexo yml file cfg
     # Load config from cfg.
     if args.cfg_file is not None:
         cfg.merge_from_file(args.cfg_file)
