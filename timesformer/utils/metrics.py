@@ -25,9 +25,15 @@ def topks_correct(preds, labels, ks):
         0
     ), "Batch dim of predictions and labels must match"
     # Find the top max_k predictions for each sample
-    _top_max_k_vals, top_max_k_inds = torch.topk(
-        preds, min(max(ks), len(preds)), dim=1, largest=True, sorted=True # min max to account for less than 5 labels (egoexo dataset)
-    )
+    if len(preds.shape) == 1:
+        _top_max_k_vals, top_max_k_inds = torch.topk(
+            preds, min(max(ks), len(labels)), dim=1, largest=True, sorted=True # since we only have 4 labels we can't do top 5 error
+        )
+    else:
+        _top_max_k_vals, top_max_k_inds = torch.topk(
+            preds, min(max(ks), len(preds[0])), dim=1, largest=True, sorted=True # since we only have 4 labels we can't do top 5 error
+        )
+        
     # (batch_size, max_k) -> (max_k, batch_size).
     top_max_k_inds = top_max_k_inds.t()
     # (batch_size, ) -> (max_k, batch_size).
