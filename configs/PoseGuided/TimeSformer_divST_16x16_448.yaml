@@ -1,12 +1,10 @@
 TRAIN:
   ENABLE: True
-  DATASET: EgoExo
+  DATASET: PoseGuided
   BATCH_SIZE: 8
   EVAL_PERIOD: 1
   CHECKPOINT_PERIOD: 1
   AUTO_RESUME: True 
-  # CHECKPOINT_FILE_PATH: /vision/asomaya1/ego_exo/ProficiencyEstimation/TimeSformer/pretrained_ckpts/model_best.pth
-  # FINETUNE: False #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
   # CHECKPOINT_FILE_PATH: /vision/asomaya1/ego_exo/ProficiencyEstimation/TimeSformer/pretrained_ckpts/model_best.pth
   FINETUNE: False #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
 
@@ -39,14 +37,15 @@ SOLVER:
   WEIGHT_DECAY: 1e-4
   OPTIMIZING_METHOD: sgd
 MODEL:
-  MODEL_NAME: vit_base_patch16_224
+  MODEL_NAME: pgt_vit_base_patch16_224
   NUM_CLASSES: 4
+  NUM_PROMPTS: 1
   ARCH: vit
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5
 TEST:
   ENABLE: True
-  DATASET: EgoExo
+  DATASET: PoseGuided
   BATCH_SIZE: 32
   NUM_ENSEMBLE_VIEWS: 10
   NUM_SPATIAL_CROPS: 3

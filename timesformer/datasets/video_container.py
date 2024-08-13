@@ -1,8 +1,9 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 import av
+import torch
 
-
+# TODO: create a version of this for feature tensor 
 def get_video_container(path_to_vid, multi_thread_decode=False, backend="pyav"):
     """
     Given the path to the video, return the pyav video container.
@@ -26,6 +27,17 @@ def get_video_container(path_to_vid, multi_thread_decode=False, backend="pyav"):
             container.streams.video[0].thread_type = "AUTO"
         #except:
         #  container = None
+        return container
+    elif backend == "pt":
+        # NOTE: we load onto cpu since it seems that video frame are loaded there as well
+        # container = torch.load(path_to_vid).squeeze().cpu()
+        try:
+            container = torch.load(path_to_vid, map_location='cpu').detach()
+            container.requires_grad_(False)
+            container = container.squeeze()
+        except:
+            ...
+        
         return container
     else:
         raise NotImplementedError("Unknown backend {}".format(backend))

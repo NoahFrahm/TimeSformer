@@ -4,6 +4,8 @@
 from timesformer.utils.misc import launch_job
 from timesformer.utils.parser import load_config, parse_args
 
+# import torch.multiprocessing as mp
+
 from tools.test_net import test
 from tools.train_net import train
 
@@ -41,4 +43,5 @@ def main():
 
 
 if __name__ == "__main__":
+    # mp.set_start_method('spawn')
     main()

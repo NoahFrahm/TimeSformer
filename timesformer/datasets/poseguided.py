@@ -16,9 +16,10 @@ logger = logging.get_logger(__name__)
 
 
 @DATASET_REGISTRY.register()
-class Kinetics(torch.utils.data.Dataset):
+class Poseguided(torch.utils.data.Dataset):
+    # TODO: fix to be accurate to how we load data from this dataset, update doc string etc.
     """
-    Kinetics video loader. Construct the Kinetics video loader, then sample
+    PoseGuided video loader. Construct the PoseGuided video loader, then sample
     clips from the videos. For training and validation, a single clip is
     randomly sampled from every video with random cropping, scaling, and
     flipping. For testing, multiple clips are uniformaly sampled from every
@@ -29,7 +30,7 @@ class Kinetics(torch.utils.data.Dataset):
 
     def __init__(self, cfg, mode, num_retries=10):
         """
-        Construct the Kinetics video loader with a given csv file. The format of
+        Construct the PoseGuided video loader with a given csv file. The format of
         the csv file is:
         ```
         path_to_video_1 label_1
@@ -51,7 +52,7 @@ class Kinetics(torch.utils.data.Dataset):
             "train",
             "val",
             "test",
-        ], "Split '{}' not supported for Kinetics".format(mode)
+        ], "Split '{}' not supported for PoseGuided".format(mode)
         self.mode = mode
         self.cfg = cfg
 
@@ -68,7 +69,7 @@ class Kinetics(torch.utils.data.Dataset):
                 cfg.TEST.NUM_ENSEMBLE_VIEWS * cfg.TEST.NUM_SPATIAL_CROPS
             )
 
-        logger.info("Constructing Kinetics {}...".format(mode))
+        logger.info("Constructing PoseGuided {}...".format(mode))
         self._construct_loader()
 
     def _construct_loader(self):
@@ -76,38 +77,50 @@ class Kinetics(torch.utils.data.Dataset):
         Construct the video loader.
         """
         path_to_file = os.path.join(
-            self.cfg.DATA.PATH_TO_DATA_DIR, "{}.csv".format(self.mode)
+            self.cfg.DATA.PATH_TO_DATA_DIR, self.cfg.DATA.CAMERA_VIEW, "{}.csv".format(self.mode)
         )
         assert PathManager.exists(path_to_file), "{} dir not found".format(
             path_to_file
         )
 
         self._path_to_videos = []
+        self._path_to_pose_tensors = []
         self._labels = []
         self._spatial_temporal_idx = []
         with PathManager.open(path_to_file, "r") as f:
             for clip_idx, path_label in enumerate(f.read().splitlines()):
                 assert (
+                    # NOTE: should be 3 but there is a fourth in the current version of the csv, so 4 for now
+                    # len(path_label.split(self.cfg.DATA.PATH_LABEL_SEPARATOR))
+                    # == 3
                     len(path_label.split(self.cfg.DATA.PATH_LABEL_SEPARATOR))
-                    == 2
+                    == 4
                 )
-                path, label = path_label.split(
+                # NOTE: need to update this once we only have 3 in the csv
+                # video_path, pose_path, label = path_label.split(
+                #     self.cfg.DATA.PATH_LABEL_SEPARATOR
+                # )
+                video_path, key_points, feature_path, label = path_label.split(
                     self.cfg.DATA.PATH_LABEL_SEPARATOR
                 )
+        
                 for idx in range(self._num_clips):
                     self._path_to_videos.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, path)
+                        os.path.join(self.cfg.DATA.PATH_PREFIX, video_path)
+                    )
+                    self._path_to_pose_tensors.append(
+                        os.path.join(self.cfg.DATA.PATH_PREFIX, feature_path)
                     )
                     self._labels.append(int(label))
                     self._spatial_temporal_idx.append(idx)
                     self._video_meta[clip_idx * self._num_clips + idx] = {}
         assert (
             len(self._path_to_videos) > 0
-        ), "Failed to load Kinetics split {} from {}".format(
+        ), "Failed to load PoseGuided split {} from {}".format(
             self._split_idx, path_to_file
         )
         logger.info(
-            "Constructing kinetics dataloader (size: {}) from {}".format(
+            "Constructing PoseGuided dataloader (size: {}) from {}".format(
                 len(self._path_to_videos), path_to_file
             )
         )
@@ -134,7 +147,7 @@ class Kinetics(torch.utils.data.Dataset):
 
         if self.mode in ["train", "val"]:
             # -1 indicates random sampling.
-            temporal_sample_index = -1
+            temporal_sample_index = -1 # TODO: figure out how we can use this to extract correct pose feature
             spatial_sample_index = -1
             min_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[0]
             max_scale = self.cfg.DATA.TRAIN_JITTER_SCALES[1]
@@ -192,34 +205,64 @@ class Kinetics(torch.utils.data.Dataset):
         # Try to decode and sample a clip from a video. If the video can not be
         # decoded, repeatly find a random video replacement that can be decoded.
         for i_try in range(self._num_retries):
-            video_container = None
-            try:
+            video_container, pose_container = None, None
+            
+            try: # video portion
                 video_container = container.get_video_container(
                     self._path_to_videos[index],
                     self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
                     self.cfg.DATA.DECODING_BACKEND,
                 )
+                
             except Exception as e:
                 logger.info(
                     "Failed to load video from {} with error {}".format(
                         self._path_to_videos[index], e
                     )
                 )
-            # Select a random video if the current video was not able to access.
-            if video_container is None:
-                logger.warning(
-                    "Failed to meta load video idx {} from {}; trial {}".format(
-                        index, self._path_to_videos[index], i_try
+
+            try: # pose tensor portion
+                pose_container = container.get_video_container(
+                    self._path_to_pose_tensors[index],
+                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                    'pt',
+                )
+                
+            except Exception as e:
+                logger.info(
+                    "Failed to load pose feature tensor from {} with error {}".format(
+                        self._path_to_pose_tensors[index], e
                     )
                 )
+            
+            # Select a random video if the current video was not able to access.
+            if video_container is None or pose_container is None:
+                
+                if pose_container is None:
+                    logger.warning(
+                        "Failed to load pose idx {} from {}; trial {}".format(
+                            index, self._path_to_pose_tensors[index], i_try
+                        )
+                    )
+                if video_container is None:
+                     logger.warning(
+                        "Failed to meta load video idx {} from {}; trial {}".format(
+                            index, self._path_to_videos[index], i_try
+                        )
+                    )
+
                 if self.mode not in ["test"] and i_try > self._num_retries // 2:
                     # let's try another one
                     index = random.randint(0, len(self._path_to_videos) - 1)
                 continue
-
+            
+            # TODO: the video container is a subclip, make sure we extract the pose feature in the same way with the same exact params?
+            # aka we need one to one correspondance between frame in video and pose feature
+            # pose tokens TODO: create decode call here that can get corresponding pose features
             # Decode video. Meta info is used to perform selective decoding.
-            frames = decoder.decode(
+            frames, pose_features = decoder.pt_decode( 
                 video_container,
+                pose_container,
                 sampling_rate,
                 self.cfg.DATA.NUM_FRAMES,
                 temporal_sample_index,
@@ -251,6 +294,9 @@ class Kinetics(torch.utils.data.Dataset):
                 frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
             )
 
+            # T Keypoint Feature -> Keypoint T Feature
+            pose_features = pose_features.permute(1, 0, 2)
+
             # T H W C -> C T H W.
             frames = frames.permute(3, 0, 1, 2)
             # Perform data augmentation.
@@ -277,8 +323,8 @@ class Kinetics(torch.utils.data.Dataset):
 
                      ).long(),
                 )
-
-            return frames, label, index, {}
+            # print(frames.shape, pose_features.shape[0][0])
+            return [frames, pose_features] , label, index, {}
         else:
             raise RuntimeError(
                 "Failed to fetch video after {} retries.".format(
