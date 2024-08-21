@@ -33,6 +33,7 @@ default_cfgs = {
     ),
 }
 
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -67,7 +68,7 @@ class PromptAttention(nn.Module):
            self.proj_drop = nn.Dropout(proj_drop)
         self.attn_drop = nn.Dropout(attn_drop)
 
-    def forward(self, x, prompt_mask_size): # TODO: modify to accept prompt, or assume input is already concatenated
+    def forward(self, x, prompt_mask_size):
         B, N, C = x.shape
         if self.with_qkv:
            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
@@ -86,22 +87,15 @@ class PromptAttention(nn.Module):
            x = self.proj_drop(x)
         
         # NOTE: this is to determine how to mask out prompt from result
-        # TODO: verify we handle space and time correctly (they have different shapes so masking is different for time and space)
-        # breakpoint()
+        # verify we handle space and time correctly (they have different shapes so masking is different for time and space)
         if self.attention_type == 'time':
             x = x[:-prompt_mask_size, :, :]
         elif self.attention_type == 'space':
             x = x[:, :-self.prompt_size, :]
-
-        # we cant rely on batch size since the last iteration will not necessarily fit this shape
-
         return x
 
 class PromptBlock(nn.Module):
 
-    # TODO: we need to set dim arg to incorporate prompt size (maybe not necessary since prompt tokens are same as regular tokens)
-    # here we must incorporate a larger MSA layer to account for prompts
-    # and masking of MSA output to provide guidance rather than change
     def __init__(self, dim, prompt_dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
                  drop_path=0.1, act_layer=nn.GELU, norm_layer=nn.LayerNorm, attention_type='divided_space_time'):
         super().__init__()
@@ -109,8 +103,6 @@ class PromptBlock(nn.Module):
         assert(attention_type in ['divided_space_time', 'space_only','joint_space_time'])
         
         self.norm1 = norm_layer(dim)
-
-        # TODO: modify this block to take in prompt and video
         self.attention_prompt_projection = nn.Sequential(
                 nn.Linear(prompt_dim, dim),
                 nn.ReLU()
@@ -136,16 +128,13 @@ class PromptBlock(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
 
-    def forward(self, x, prompts, B, T, W): # TODO: here we can add prompt as additional param on top of (x, B, T, W)
+    def forward(self, x, prompts, B, T, W):
         num_spatial_tokens = (x.size(1) - 1) // T
         H = num_spatial_tokens // W
 
         if self.attention_type in ['space_only', 'joint_space_time']:
-            # TODO: fix this cat to work correctly
-            prompted_x = torch.cat(self.norm1(x), prompts) if self.prompts > 0 else x #NOTE: this is new
-
-            x = x + self.drop_path(self.attn(prompted_x)) #NOTE: this is new
-            # x = x + self.drop_path(self.attn(self.norm1(x))) #NOTE: the attention block is the only thing that takes prompts
+            prompted_x = torch.cat(self.norm1(x), prompts)
+            x = x + self.drop_path(self.attn(prompted_x))
             x = x + self.drop_path(self.mlp(self.norm2(x)))
             return x
         elif self.attention_type == 'divided_space_time':
@@ -155,18 +144,11 @@ class PromptBlock(nn.Module):
             
             #  (B, H, W, T, M) -> (B, H * W, T, M) -> (B, 17, T, M) -> (B * 17) T, M
             # prompts -> (B, 17, T, M)
-
             # NOTE:need to project the prompt from 128 -> 768, could do a learned MLP or simple projection?
             temporal_prompts = rearrange(prompts, 'b k t m -> (b k) t m',b=B,k=17,t=T)
             temporal_prompts = self.temporal_prompt_projection(temporal_prompts)
             prompted_xt = torch.cat((self.temporal_norm1(xt), temporal_prompts), 0) #NOTE: this is new
-
-            # breakpoint()
-            # res_temporal = self.drop_path(self.temporal_attn(self.temporal_norm1(xt)))
             res_temporal = self.drop_path(self.temporal_attn(prompted_xt, temporal_prompts.shape[0]))
-            # before -> [3136, 8, 768]
-            # prompted -> [3204, 8, 768]
-            # breakpoint()
             res_temporal = rearrange(res_temporal, '(b h w) t m -> b (h w t) m',b=B,h=H,w=W,t=T)
             res_temporal = self.temporal_fc(res_temporal)
             xt = x[:,1:,:] + res_temporal
@@ -175,33 +157,19 @@ class PromptBlock(nn.Module):
             init_cls_token = x[:,0,:].unsqueeze(1)
             cls_token = init_cls_token.repeat(1, T, 1)
             cls_token = rearrange(cls_token, 'b t m -> (b t) m',b=B,t=T).unsqueeze(1)
-
             xs = xt
-            # [4, 6272, 768]
-            # breakpoint()
             xs = rearrange(xs, 'b (h w t) m -> (b t) (h w) m',b=B,h=H,w=W,t=T)
-            # [32, 784, 768]
             xs = torch.cat((cls_token, xs), 1)
-            # [32, 785, 768]
-            # breakpoint()
             spatial_prompts = rearrange(prompts, 'b k t m -> (b t) k m',b=B,k=17,t=T)
             spatial_prompts = self.attention_prompt_projection(spatial_prompts)
-            # breakpoint()
             prompted_xs = torch.cat((self.norm1(xs), spatial_prompts), 1)
             res_spatial = self.drop_path(self.attn(prompted_xs, 1)) #NOTE: this is new
-            # res_spatial = self.drop_path(self.attn(self.norm1(xs)))
-            # breakpoint()
-
-
+        
             ### Taking care of CLS token
             cls_token = res_spatial[:,0,:]
             cls_token = rearrange(cls_token, '(b t) m -> b t m',b=B,t=T)
             cls_token = torch.mean(cls_token,1,True) ## averaging for every frame
-            # breakpoint()
             res_spatial = res_spatial[:,1:,:]
-
-
-            
             res_spatial = rearrange(res_spatial, '(b t) (h w) m -> b (h w t) m',b=B,h=H,w=W,t=T)
             res = res_spatial
             x = xt
@@ -389,7 +357,6 @@ class pgt_vit_base_patch16_224(nn.Module):
         self.pretrained=True
         patch_size = 16
 
-        # self.model = PGTVisionTransformer(number_of_prompts=cfg.MODEL.NUM_PROMPTS, img_size=cfg.DATA.TRAIN_CROP_SIZE, num_classes=cfg.MODEL.NUM_CLASSES, patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1, num_frames=cfg.DATA.NUM_FRAMES, attention_type=cfg.TIMESFORMER.ATTENTION_TYPE, **kwargs)
         self.model = PGTVisionTransformer(img_size=cfg.DATA.TRAIN_CROP_SIZE, num_classes=cfg.MODEL.NUM_CLASSES, patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4, qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), drop_rate=0., attn_drop_rate=0., drop_path_rate=0.1, num_frames=cfg.DATA.NUM_FRAMES, attention_type=cfg.TIMESFORMER.ATTENTION_TYPE, **kwargs)
 
         self.attention_type = cfg.TIMESFORMER.ATTENTION_TYPE
@@ -421,4 +388,5 @@ class PGTTimeSformer(nn.Module):
         x = self.model(x)
         return x
 
+ 
  
