@@ -9,6 +9,8 @@ from torch.utils.data._utils.collate import default_collate
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data.sampler import RandomSampler
 
+import torch.multiprocessing as mp # new added code
+
 from timesformer.datasets.multigrid_helper import ShortCycleBatchSampler
 
 from . import utils as utils
@@ -78,6 +80,7 @@ def construct_loader(cfg, split, is_precise_bn=False):
         shuffle = False
         drop_last = False
 
+
     # Construct the dataset
     dataset = build_dataset(dataset_name, cfg, split)
 
@@ -87,6 +90,7 @@ def construct_loader(cfg, split, is_precise_bn=False):
         batch_sampler = ShortCycleBatchSampler(
             sampler, batch_size=batch_size, drop_last=drop_last, cfg=cfg
         )
+
         # Create a loader
         loader = torch.utils.data.DataLoader(
             dataset,

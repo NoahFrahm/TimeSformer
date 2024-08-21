@@ -152,7 +152,49 @@ class TestMeter(object):
         self.data_timer.pause()
         self.net_timer.reset()
 
-    def finalize_metrics(self, ks=(1, 5)):
+    # def finalize_metrics(self, ks=(1, 5)):
+    #     """
+    #     Calculate and log the final ensembled metrics.
+    #     ks (tuple): list of top-k values for topk_accuracies. For example,
+    #         ks = (1, 5) correspods to top-1 and top-5 accuracy.
+    #     """
+    #     if not all(self.clip_count == self.num_clips):
+    #         logger.warning(
+    #             "clip count {} ~= num clips {}".format(
+    #                 ", ".join(
+    #                     [
+    #                         "{}: {}".format(i, k)
+    #                         for i, k in enumerate(self.clip_count.tolist())
+    #                     ]
+    #                 ),
+    #                 self.num_clips,
+    #             )
+    #         )
+
+    #     self.stats = {"split": "test_final"}
+    #     if self.multi_label:
+    #         map = get_map(
+    #             self.video_preds.cpu().numpy(), self.video_labels.cpu().numpy()
+    #         )
+    #         self.stats["map"] = map
+    #     else:
+    #         num_topks_correct = metrics.topks_correct(
+    #             self.video_preds, self.video_labels, ks
+    #         )
+    #         topks = [
+    #             (x / self.video_preds.size(0)) * 100.0
+    #             for x in num_topks_correct
+    #         ]
+
+    #         assert len({len(ks), len(topks)}) == 1
+    #         for k, topk in zip(ks, topks):
+    #             self.stats["top{}_acc".format(k)] = "{:.{prec}f}".format(
+    #                 topk, prec=2
+    #             )
+    #     logging.log_json_stats(self.stats)
+
+    def finalize_metrics(self, ks=(1, 4)):
+
         """
         Calculate and log the final ensembled metrics.
         ks (tuple): list of top-k values for topk_accuracies. For example,
@@ -181,18 +223,44 @@ class TestMeter(object):
             num_topks_correct = metrics.topks_correct(
                 self.video_preds, self.video_labels, ks
             )
+            # print("\npreds: ", self.preds, "labels: ", self.labels, "\n")
+            print("\npreds: ", self.video_preds, "labels: ", self.video_labels, "\n")
+
             topks = [
                 (x / self.video_preds.size(0)) * 100.0
                 for x in num_topks_correct
             ]
 
             assert len({len(ks), len(topks)}) == 1
+            # here we need to investigate how topks is calculated, run a val here using config file params
+            print("ks: ", ks, "topks: ", topks)
+            # breakpoint()
+
             for k, topk in zip(ks, topks):
                 self.stats["top{}_acc".format(k)] = "{:.{prec}f}".format(
                     topk, prec=2
                 )
-        logging.log_json_stats(self.stats)
 
+            preds_max = torch.argmax(self.video_preds, dim=1)
+            print(self.stats)
+            try:
+                self.stats['f1_score_macro'] = f1_score(self.video_labels, preds_max, average='macro')
+            except:
+                pass
+            try:
+                self.stats['f1_score_weighted'] = f1_score(self.video_labels, preds_max, average='weighted')
+            except:
+                pass
+            try:
+                self.stats['roc_auc_score_macro'] = roc_auc_score(self.video_labels, preds_max, average='macro')
+            except:
+                pass
+            try:
+                self.stats['roc_auc_score_weighted'] = roc_auc_score(self.video_labels, preds_max, average='weighted')
+            except:
+                pass
+            
+        logging.log_json_stats(self.stats)
 
 class ScalarMeter(object):
     """

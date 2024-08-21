@@ -6,6 +6,10 @@ import random
 import torch
 import torchvision.io as io
 
+import gc
+import matplotlib.pyplot as plt
+
+
 
 def temporal_sampling(frames, start_idx, end_idx, num_samples):
     """
@@ -25,6 +29,28 @@ def temporal_sampling(frames, start_idx, end_idx, num_samples):
     index = torch.clamp(index, 0, frames.shape[0] - 1).long()
     frames = torch.index_select(frames, 0, index)
     return frames
+
+
+def pt_temporal_sampling(frames, features, start_idx, end_idx, num_samples):
+    """
+    Given the start and end frame index, sample num_samples frames between
+    the start and end with equal interval.
+    Args:
+        frames (tensor): a tensor of video frames, dimension is
+            `num video frames` x `channel` x `height` x `width`.
+        start_idx (int): the index of the start frame.
+        end_idx (int): the index of the end frame.
+        num_samples (int): number of frames to sample.
+    Returns:
+        frames (tersor): a tensor of temporal sampled video frames, dimension is
+            `num clip frames` x `channel` x `height` x `width`.
+    """
+    index = torch.linspace(start_idx, end_idx, num_samples)
+    index = torch.clamp(index, 0, frames.shape[0] - 1).long()
+    frames = torch.index_select(frames, 0, index)
+    features = torch.index_select(features, 0, index)
+
+    return frames, features
 
 
 def get_start_end_idx(video_size, clip_size, clip_idx, num_clips):
@@ -58,9 +84,7 @@ def get_start_end_idx(video_size, clip_size, clip_idx, num_clips):
     return start_idx, end_idx
 
 
-def pyav_decode_stream(
-    container, start_pts, end_pts, stream, stream_name, buffer_size=0
-):
+def pyav_decode_stream(container, start_pts, end_pts, stream, stream_name, buffer_size=0, with_timestamps=False):
     """
     Decode the video with PyAV decoder.
     Args:
@@ -82,6 +106,7 @@ def pyav_decode_stream(
     seek_offset = max(start_pts - margin, 0)
 
     container.seek(seek_offset, any_frame=False, backward=True, stream=stream)
+    time_base = stream.time_base.denominator #NOTE: new code, this will allow us to map pts to frame
     frames = {}
     buffer_count = 0
     max_pts = 0
@@ -97,62 +122,11 @@ def pyav_decode_stream(
             if buffer_count >= buffer_size:
                 break
     result = [frames[pts] for pts in sorted(frames)]
-    return result, max_pts
+    if not with_timestamps: return result, max_pts
 
-# TODO: modify to account for pose
-def pyav_pose_decode_stream(
-    container, start_pts, end_pts, stream, stream_name, buffer_size=0, get_pts=False
-):
-    """
-    Decode the video with PyAV decoder.
-    Args:
-        container (container): PyAV container.
-        start_pts (int): the starting Presentation TimeStamp to fetch the
-            video frames.
-        end_pts (int): the ending Presentation TimeStamp of the decoded frames.
-        stream (stream): PyAV stream.
-        stream_name (dict): a dictionary of streams. For example, {"video": 0}
-            means video stream at stream index 0.
-        buffer_size (int): number of additional frames to decode beyond end_pts.
-    Returns:
-        result (list): list of frames decoded.
-        max_pts (int): max Presentation TimeStamp of the video sequence.
-    """
-    # Seeking in the stream is imprecise. Thus, seek to an ealier PTS by a
-    # margin pts.
-    margin = 1024
-    seek_offset = max(start_pts - margin, 0)
+    frame_timestamps = np.array(sorted(frames)) / time_base #NOTE: new code
+    return result, max_pts, frame_timestamps
 
-    container.seek(seek_offset, any_frame=False, backward=True, stream=stream)
-
-    time_base = stream.time_base.denominator # this will allow us to map pts to frame
-    frames = {}
-    buffer_count = 0
-    max_pts = 0
-    
-    for frame in container.decode(**stream_name):
-        max_pts = max(max_pts, frame.pts)
-
-        if frame.pts < start_pts:
-            continue
-        if frame.pts <= end_pts:
-            frames[frame.pts] = frame
-        else:
-            buffer_count += 1
-            frames[frame.pts] = frame
-            if buffer_count >= buffer_size:
-                break
-
-    vid_result = [frames[pts] for pts in sorted(frames)] # NOTE: frames is a dict
-    if not get_pts: return vid_result, max_pts
-
-    frame_timestamps = np.array([pts / time_base for pts in sorted(frames)])
-    # converted_frame_pts = [pts / time_base for pts in sorted(frames)]
-    # multiply by target FPS later?
-
-    # breakpoint()
-
-    return vid_result, frame_timestamps, max_pts
 
 # TODO: modify this so that we can correctly extract the corresponding pose features, pass pose container and return downsampled version?
 def torchvision_decode(
@@ -267,7 +241,7 @@ def torchvision_decode(
 
 def pyav_decode(
     container, sampling_rate, num_frames, clip_idx, num_clips=10, target_fps=30, start=None, end=None
-, duration=None, frames_length=None):
+, duration=None, frames_length=None, with_timestamp=False):
     """
     Convert the video from its original fps to the target_fps. If the video
     support selective decoding (contain decoding information in the video head),
@@ -329,12 +303,13 @@ def pyav_decode(
     # If video stream was found, fetch video frames from the video.
     if container.streams.video:
         if start is None and end is None:
-            video_frames, max_pts = pyav_decode_stream(
+            video_frames, max_pts, timestamps = pyav_decode_stream(
                 container,
                 video_start_pts,
                 video_end_pts,
                 container.streams.video[0],
                 {"video": 0},
+                with_timestamps=True
             )
         else:
             timebase = duration / frames_length
@@ -351,110 +326,11 @@ def pyav_decode(
 
         frames = [frame.to_rgb().to_ndarray() for frame in video_frames]
         frames = torch.as_tensor(np.stack(frames))
-
-    return frames, fps, decode_all_video
-
-# TODO: modify to account for pose, we assume we will always decode the entire video to ensure alignment
-def pyav_pose_decode(
-    container, pose_container, sampling_rate, num_frames, clip_idx, num_clips=10, target_fps=30, start=None, end=None
-, duration=None, frames_length=None):
-    """
-    Convert the video from its original fps to the target_fps. If the video
-    support selective decoding (contain decoding information in the video head),
-    the perform temporal selective decoding and sample a clip from the video
-    with the PyAV decoder. If the video does not support selective decoding,
-    decode the entire video.
-
-    Args:
-        container (container): pyav container.
-        sampling_rate (int): frame sampling rate (interval between two sampled
-            frames.
-        num_frames (int): number of frames to sample.
-        clip_idx (int): if clip_idx is -1, perform random temporal sampling. If
-            clip_idx is larger than -1, uniformly split the video to num_clips
-            clips, and select the clip_idx-th video clip.
-        num_clips (int): overall number of clips to uniformly sample from the
-            given video.
-        target_fps (int): the input video may has different fps, convert it to
-            the target video fps before frame sampling.
-    Returns:
-        frames (tensor): decoded frames from the video. Return None if the no
-            video stream was found.
-        fps (float): the number of frames per second of the video.
-        decode_all_video (bool): If True, the entire video was decoded.
-    """
-    # Try to fetch the decoding information from the video head. Some of the
-    # videos does not support fetching the decoding information, for that case
-    # it will get None duration.
-    fps = float(container.streams.video[0].average_rate)
-
-    orig_duration = duration
-    tb = float(container.streams.video[0].time_base)
-    frames_length = container.streams.video[0].frames
-    duration = container.streams.video[0].duration
-
-    if duration is None and orig_duration is not None:
-       duration = orig_duration / tb
-    
-    if duration is None:
-        # If failed to fetch the decoding information, decode the entire video.
-        decode_all_video = True
-        video_start_pts, video_end_pts = 0, math.inf
-    else:
-        # Perform selective decoding.
-        decode_all_video = False
-        start_idx, end_idx = get_start_end_idx(
-            frames_length,
-            sampling_rate * num_frames / target_fps * fps,
-            clip_idx,
-            num_clips,
-        )
-        timebase = duration / frames_length
-        video_start_pts = int(start_idx * timebase)
-        video_end_pts = int(end_idx * timebase)
-       
-   
-    # If failed to fetch the decoding information, decode the entire video.
-    decode_all_video = True
-    video_start_pts, video_end_pts = 0, math.inf
-
-    final_video_frames, final_pose_frames = None, None
-    # If video stream was found, fetch video frames from the video.
-    if container.streams.video:
-        if start is None and end is None:
-            # we can replace with generic pyav_decode_stream and just add flag to return frame_timestamps (less code)
-            # breakpoint()
-            video_frames, frame_timestamps, max_pts = pyav_pose_decode_stream(
-                container,
-                video_start_pts,
-                video_end_pts,
-                container.streams.video[0],
-                {"video": 0},
-                get_pts=True
-            )
-        else:
-            timebase = duration / frames_length
-            start_i = start
-            end_i = end
-            video_frames, frame_timestamps, max_pts = pyav_decode_stream(
-                container,
-                start_i,
-                end_i,
-                container.streams.video[0],
-                {"video": 0},
-            )
-        container.close()
-
-        final_video_frames = [frame.to_rgb().to_ndarray() for frame in video_frames]
-        final_video_frames = torch.as_tensor(np.stack(final_video_frames))
         
-        # NOTE: here we take the PTS array (fram_timestamps) and apply the target fps (we assume 30).
-        # We can then use this to create a 1 to 1 mapping of selected video frame to pose features
-        frame_indices = np.round(frame_timestamps * target_fps)
-        final_pose_frames = torch.stack([pose_container[int(index)] for index in frame_indices])
-
-    return final_video_frames, final_pose_frames, fps, decode_all_video
-
+    if with_timestamp:
+        timestamps *= fps
+        return frames, fps, decode_all_video, timestamps
+    return frames, fps, decode_all_video
 
 
 def decode(
@@ -549,12 +425,8 @@ def decode(
     return frames
 
 
-# TODO: modified version of this for our pose features, update doc string etc.
-# NOTE: we assume we always have to load entire video before sampling frames, we assume both pose features and videos are
-# at the same fps (one pose feature per video frame) and same duration etc. assume target fps = video fps
 def pt_decode(
     container,
-    pose_container,
     sampling_rate,
     num_frames,
     clip_idx=-1,
@@ -597,10 +469,8 @@ def pt_decode(
     assert clip_idx >= -1, "Not valied clip_idx {}".format(clip_idx)
     try:
         if backend == "pyav":
-            # special versions of these that take in feature tensor and return sampled feature tensors in addition to -> frames, fps, decode_all_video
-            frames, pose_features, fps, decode_all_video = pyav_pose_decode(
+            frames, fps, decode_all_video, timestamps = pyav_decode(
                 container,
-                pose_container,
                 sampling_rate,
                 num_frames,
                 clip_idx,
@@ -610,10 +480,9 @@ def pt_decode(
                 end,
                 duration,
                 frames_length,
+                with_timestamp=True
             )
-            # breakpoint()
         elif backend == "torchvision":
-            # special versions of these that take in feature tensor and return sampled feature tensors in addition to -> frames, fps, decode_all_video
             frames, fps, decode_all_video = torchvision_decode(
                 container,
                 sampling_rate,
@@ -645,9 +514,191 @@ def pt_decode(
         num_clips if decode_all_video else 1,
     )
     # Perform temporal sampling from the decoded video.
-    frames = temporal_sampling(frames, start_idx, end_idx, num_frames)
-    pose_features = temporal_sampling(pose_features, start_idx, end_idx, num_frames)
+    final_pose_frames = torch.tensor([int(index) for index in timestamps])
+    frames, sample_mask = pt_temporal_sampling(frames, final_pose_frames, start_idx, end_idx, num_frames)
 
-    # breakpoint()
+    # # Display all frames
+    # save_path = '/playpen-nas-ssd3/nofrahm/proficiency/figures/tsformer'
+    # for i, frame in enumerate(frames):
+    #     plt.figure()
+    #     plt.imshow(frame)
+    #     plt.savefig(save_path + '/' + str(i))
+    #     plt.close() 
 
-    return frames, pose_features
+    return frames, sample_mask
+
+
+# # TODO: modify to account for pose
+# def pyav_pose_decode_stream(container, start_pts, end_pts, stream, stream_name, buffer_size=0, get_pts=False):
+#     """
+#     Decode the video with PyAV decoder.
+#     Args:
+#         container (container): PyAV container.
+#         start_pts (int): the starting Presentation TimeStamp to fetch the
+#             video frames.
+#         end_pts (int): the ending Presentation TimeStamp of the decoded frames.
+#         stream (stream): PyAV stream.
+#         stream_name (dict): a dictionary of streams. For example, {"video": 0}
+#             means video stream at stream index 0.
+#         buffer_size (int): number of additional frames to decode beyond end_pts.
+#     Returns:
+#         result (list): list of frames decoded.
+#         max_pts (int): max Presentation TimeStamp of the video sequence.
+#     """
+#     # Seeking in the stream is imprecise. Thus, seek to an ealier PTS by a
+#     # margin pts.
+#     margin = 1024
+#     seek_offset = max(start_pts - margin, 0)
+
+#     container.seek(seek_offset, any_frame=False, backward=True, stream=stream)
+
+#     time_base = stream.time_base.denominator # this will allow us to map pts to frame
+#     frames = {}
+#     buffer_count = 0
+#     max_pts = 0
+
+#     # print("before stream decode")
+#     # breakpoint()
+    
+#     for frame in container.decode(**stream_name):
+
+#         max_pts = max(max_pts, frame.pts)
+
+#         if frame.pts < start_pts:
+#             continue
+#         if frame.pts <= end_pts:
+#             frames[frame.pts] = frame
+#         else:
+#             buffer_count += 1
+#             frames[frame.pts] = frame
+#             if buffer_count >= buffer_size:
+#                 break
+    
+
+#     # print("after stream decode")
+#     # breakpoint()
+
+#     vid_result = [frames[pts] for pts in sorted(frames)] # NOTE: frames is a dict
+#     if not get_pts: return vid_result, max_pts
+
+#     # frame_timestamps = np.array([pts / time_base for pts in sorted(frames)])
+#     frame_timestamps = np.array(sorted(frames)) / time_base
+
+#     # converted_frame_pts = [pts / time_base for pts in sorted(frames)]
+#     # multiply by target FPS later?
+
+#     return vid_result, frame_timestamps, max_pts
+
+
+# # TODO: modified version of this for our pose features, update doc string etc.
+# # NOTE: we assume we always have to load entire video before sampling frames, we assume both pose features and videos are
+# # at the same fps (one pose feature per video frame) and same duration etc. assume target fps = video fps
+# def pt_decode(
+#     container,
+#     pose_features,
+#     sampling_rate,
+#     num_frames,
+#     clip_idx=-1,
+#     num_clips=10,
+#     video_meta=None,
+#     target_fps=30,
+#     backend="pyav",
+#     max_spatial_scale=0,
+#     start=None,
+#     end=None,
+#     duration=None,
+#     frames_length=None,
+# ):
+#     """
+#     Decode the video and perform temporal sampling.
+#     Args:
+#         container (container): pyav container.
+#         sampling_rate (int): frame sampling rate (interval between two sampled
+#             frames).
+#         num_frames (int): number of frames to sample.
+#         clip_idx (int): if clip_idx is -1, perform random temporal
+#             sampling. If clip_idx is larger than -1, uniformly split the
+#             video to num_clips clips, and select the
+#             clip_idx-th video clip.
+#         num_clips (int): overall number of clips to uniformly
+#             sample from the given video.
+#         video_meta (dict): a dict contains VideoMetaData. Details can be find
+#             at `pytorch/vision/torchvision/io/_video_opt.py`.
+#         target_fps (int): the input video may have different fps, convert it to
+#             the target video fps before frame sampling.
+#         backend (str): decoding backend includes `pyav` and `torchvision`. The
+#             default one is `pyav`.
+#         max_spatial_scale (int): keep the aspect ratio and resize the frame so
+#             that shorter edge size is max_spatial_scale. Only used in
+#             `torchvision` backend.
+#     Returns:
+#         frames (tensor): decoded frames from the video.
+#     """
+#     # Currently support two decoders: 1) PyAV, and 2) TorchVision.
+#     assert clip_idx >= -1, "Not valied clip_idx {}".format(clip_idx)
+#     try:
+#         if backend == "pyav":
+#             # special versions of these that take in feature tensor and return sampled feature tensors in addition to -> frames, fps, decode_all_video
+#             # print("before pyav pose decode")
+#             # breakpoint()
+
+#             frames, frame_indices, fps, decode_all_video = pyav_pose_decode(
+#                 container,
+#                 # pose_container,
+#                 pose_features,
+#                 sampling_rate,
+#                 num_frames,
+#                 clip_idx,
+#                 num_clips,
+#                 target_fps,
+#                 start,
+#                 end,
+#                 duration,
+#                 frames_length,
+#             )
+#             # print("after pyav pose decode")
+#             # breakpoint()
+#         elif backend == "torchvision":
+#             # special versions of these that take in feature tensor and return sampled feature tensors in addition to -> frames, fps, decode_all_video
+#             frames, fps, decode_all_video = torchvision_decode(
+#                 container,
+#                 sampling_rate,
+#                 num_frames,
+#                 clip_idx,
+#                 video_meta,
+#                 num_clips,
+#                 target_fps,
+#                 ("visual",),
+#                 max_spatial_scale,
+#             )
+#         else:
+#             raise NotImplementedError(
+#                 "Unknown decoding backend {}".format(backend)
+#             )
+#     except Exception as e:
+#         print("Failed to decode by {} with exception: {}".format(backend, e))
+#         return None
+
+#     # Return None if the frames was not decoded successfully.
+#     if frames is None or frames.size(0) == 0:
+#         return None
+
+#     clip_sz = sampling_rate * num_frames / target_fps * fps
+#     start_idx, end_idx = get_start_end_idx(
+#         frames.shape[0],
+#         clip_sz,
+#         clip_idx if decode_all_video else 0,
+#         num_clips if decode_all_video else 1,
+#     )
+#     # Perform temporal sampling from the decoded video.
+#     # print("before sampling")
+#     # breakpoint()
+
+#     frames = temporal_sampling(frames, start_idx, end_idx, num_frames)
+#     final_pose_frames = torch.stack([pose_features[int(index)] for index in frame_indices])
+#     pose_features = temporal_sampling(final_pose_frames, start_idx, end_idx, num_frames)
+    
+#     # print("after sampling")
+#     # breakpoint()
+
+#     return frames, pose_features

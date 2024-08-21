@@ -278,6 +278,10 @@ class Egoexo(torch.utils.data.Dataset):
 
                      ).long(),
                 )
+            
+            # # print("frames:", frames[0][0])
+            # path_to_feature = '/playpen-nas-ssd2/saved_tensors/dance/normal/upenn_0720_Dance_3_7_frame_aligned_videos_gp03/full_features.pt'
+            # loaded_thing = torch.load(path_to_feature)
 
             return frames, label, index, {}
         else:

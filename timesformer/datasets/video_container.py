@@ -31,12 +31,23 @@ def get_video_container(path_to_vid, multi_thread_decode=False, backend="pyav"):
     elif backend == "pt":
         # NOTE: we load onto cpu since it seems that video frame are loaded there as well
         # container = torch.load(path_to_vid).squeeze().cpu()
-        try:
-            container = torch.load(path_to_vid, map_location='cpu').detach()
-            container.requires_grad_(False)
-            container = container.squeeze()
-        except:
-            ...
+        # try:
+
+        # attatched_container = torch.load(path_to_vid)
+        # dettatched_container = attatched_container.detach()
+        # del attatched_container
+        # dettatched_container.cpu()
+        # dettatched_container.requires_grad_(False)
+        # container = dettatched_container.squeeze()
+
+        # except:
+        #     container = torch.load(path_to_vid)
+
+        container = torch.load(path_to_vid, map_location='cpu').detach()
+        container.requires_grad_(False)
+        container = container.squeeze()
+
+        # container = torch.zeros(2000, 17, 128)
         
         return container
     else:

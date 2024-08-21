@@ -5,13 +5,13 @@ TRAIN:
   EVAL_PERIOD: 1
   CHECKPOINT_PERIOD: 1
   AUTO_RESUME: True 
-  # CHECKPOINT_FILE_PATH: /vision/asomaya1/ego_exo/ProficiencyEstimation/TimeSformer/pretrained_ckpts/model_best.pth
-  FINETUNE: False #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
+  # CHECKPOINT_FILE_PATH: /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_run_outputs/Dance/Dance_video_full/checkpoints/checkpoint_epoch_00015.pyth
+  # FINETUNE: False #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
 
 DATA:
-  PATH_TO_DATA_DIR: /playpen-temp/data_organization/basketball #place my path to data here
-  CAMERA_VIEW: "exo"
-  PATH_PREFIX: /playpen-temp/data_organization/basketball #my path to data
+  PATH_TO_DATA_DIR: /playpen-nas-ssd2/data_organization/Dance/multimodal #place my path to data here
+  CAMERA_VIEW: "full"
+  PATH_PREFIX: /playpen-nas-ssd2/data_organization/Dance/multimodal #my path to data
   NUM_FRAMES: 8
   SAMPLING_RATE: 16
   TRAIN_JITTER_SCALES: [448, 512]
@@ -39,7 +39,7 @@ SOLVER:
 MODEL:
   MODEL_NAME: pgt_vit_base_patch16_224
   NUM_CLASSES: 4
-  NUM_PROMPTS: 1
+  NUM_PROMPTS: 2
   ARCH: vit
   LOSS_FUNC: cross_entropy
   DROPOUT_RATE: 0.5

@@ -1,6 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved.
 
 from fvcore.common.registry import Registry
+import torch
 
 DATASET_REGISTRY = Registry("DATASET")
 DATASET_REGISTRY.__doc__ = """
@@ -27,4 +28,21 @@ def build_dataset(dataset_name, cfg, split):
     # in configs may be in lowercase but the name of dataset class should always
     # start with an uppercase letter.
     name = dataset_name.capitalize()
+
+    # NOTE: new code added to preload tensors
+    # print("name:", name)
+    
+    # if name == 'Poseguided':
+    #     tmp_dataset = DATASET_REGISTRY.get(name)(cfg, split)
+    #     tmp_dataset._construct_loader()
+    #     tensor_paths = tmp_dataset._path_to_pose_tensors
+        
+    #     loaded_tensors = {tensor_path: torch.load(tensor_path, map_location='cpu').detach().squeeze() for tensor_path in tensor_paths}
+    #     # breakpoint()
+
+    #     for k in loaded_tensors.keys():
+    #         loaded_tensors[k].share_memory_()
+
+    #     return DATASET_REGISTRY.get(name)(cfg, split, preloaded_tensors=loaded_tensors)
+
     return DATASET_REGISTRY.get(name)(cfg, split)

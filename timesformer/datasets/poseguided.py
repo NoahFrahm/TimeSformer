@@ -28,7 +28,8 @@ class Poseguided(torch.utils.data.Dataset):
     bottom crop if the height is larger than the width.
     """
 
-    def __init__(self, cfg, mode, num_retries=10):
+
+    def __init__(self, cfg, mode, num_retries=10, preloaded_tensors={}):
         """
         Construct the PoseGuided video loader with a given csv file. The format of
         the csv file is:
@@ -56,6 +57,8 @@ class Poseguided(torch.utils.data.Dataset):
         self.mode = mode
         self.cfg = cfg
 
+        self.pose_tensors = preloaded_tensors
+
         self._video_meta = {}
         self._num_retries = num_retries
         # For training or validation mode, one single clip is sampled from every
@@ -71,6 +74,7 @@ class Poseguided(torch.utils.data.Dataset):
 
         logger.info("Constructing PoseGuided {}...".format(mode))
         self._construct_loader()
+
 
     def _construct_loader(self):
         """
@@ -124,6 +128,7 @@ class Poseguided(torch.utils.data.Dataset):
                 len(self._path_to_videos), path_to_file
             )
         )
+
 
     def __getitem__(self, index):
         """
@@ -222,12 +227,7 @@ class Poseguided(torch.utils.data.Dataset):
                 )
 
             try: # pose tensor portion
-                pose_container = container.get_video_container(
-                    self._path_to_pose_tensors[index],
-                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
-                    'pt',
-                )
-                
+                pose_container = self._path_to_pose_tensors[index]        
             except Exception as e:
                 logger.info(
                     "Failed to load pose feature tensor from {} with error {}".format(
@@ -260,9 +260,8 @@ class Poseguided(torch.utils.data.Dataset):
             # aka we need one to one correspondance between frame in video and pose feature
             # pose tokens TODO: create decode call here that can get corresponding pose features
             # Decode video. Meta info is used to perform selective decoding.
-            frames, pose_features = decoder.pt_decode( 
+            frames, frame_mask = decoder.pt_decode( 
                 video_container,
-                pose_container,
                 sampling_rate,
                 self.cfg.DATA.NUM_FRAMES,
                 temporal_sample_index,
@@ -286,16 +285,12 @@ class Poseguided(torch.utils.data.Dataset):
                     index = random.randint(0, len(self._path_to_videos) - 1)
                 continue
 
-
             label = self._labels[index]
 
             # Perform color normalization.
             frames = utils.tensor_normalize(
                 frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
             )
-
-            # T Keypoint Feature -> Keypoint T Feature
-            pose_features = pose_features.permute(1, 0, 2)
 
             # T H W C -> C T H W.
             frames = frames.permute(3, 0, 1, 2)
@@ -310,7 +305,6 @@ class Poseguided(torch.utils.data.Dataset):
                 inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
             )
 
-
             if not self.cfg.MODEL.ARCH in ['vit']:
                 frames = utils.pack_pathway_output(self.cfg, frames)
             else:
@@ -323,7 +317,11 @@ class Poseguided(torch.utils.data.Dataset):
 
                      ).long(),
                 )
-            # print(frames.shape, pose_features.shape[0][0])
+
+            pose_features = torch.load(pose_container, map_location='cpu').detach().squeeze()
+            pose_features = pose_features[frame_mask]
+            pose_features = pose_features.permute(1, 0, 2) # T Keypoint Feature -> Keypoint T Feature
+
             return [frames, pose_features] , label, index, {}
         else:
             raise RuntimeError(
@@ -331,6 +329,7 @@ class Poseguided(torch.utils.data.Dataset):
                     self._num_retries
                 )
             )
+
 
     def __len__(self):
         """
