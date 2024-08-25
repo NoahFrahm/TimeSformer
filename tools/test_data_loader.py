@@ -1,20 +1,14 @@
 # from ..timesformer.datasets.poseguided import PoseGuided
 from timesformer.datasets import *
-from torch.utils.data import Dataset, DataLoader
-from timesformer.utils.misc import launch_job
+from torch.utils.data import DataLoader
 from timesformer.utils.parser import load_config, parse_args
-from timesformer.models import build_model
-import time
+from timesformer.models import build_model, TimeMOE
 import torch
 
 def test_dataloader():
-
     args = parse_args()
-    # if args.num_shards > 1:
-    #    args.output_dir = str(args.job_dir)
     cfg = load_config(args)
 
-    
     # Create the dataset
     dataset = Poseguided(cfg, 'train')
     dataloader = DataLoader(dataset, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=True)
@@ -26,14 +20,39 @@ def test_dataloader():
     # Check data loading
     for i,  (inputs, labels, video_idx, meta) in enumerate(dataloader):
         print("iteration:", i, "video index:", video_idx)
+        breakpoint()
         for i in range(len(inputs)):
             inputs[i] = inputs[i].cuda(non_blocking=True)
         guess = model(inputs)
 
+def test_model_arch():
+    args = parse_args()
+    cfg = load_config(args)
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = TimeMOE(cfg)
+    model.to(device)
+
+    B, C, T, H, W = 8, 3, 8, 448, 448
+    test_input = torch.rand((B, C, T, H, W)).to(device)
+
+    for i in range(100):
+        print("iteration:", i)
+        output = model(4 * [test_input])
+
 
 if __name__ == "__main__":
     # Run the test
-    test_dataloader()
+    test = 1
+    if test == 0:
+        test_dataloader()
+    elif test == 1:
+        test_model_arch()
+
+    
+
+
+
 
 # # Old Version
 # def test_dataloader():

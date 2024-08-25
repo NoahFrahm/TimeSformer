@@ -329,9 +329,9 @@ class PGTVisionTransformer(nn.Module):
         x = self.norm(x)
         return x[:, 0]
 
-    def forward(self, x):
-
+    def forward(self, x, get_feature=False):
         x = self.forward_features(x)
+        if get_feature: return x
         x = self.head(x)
         return x
 

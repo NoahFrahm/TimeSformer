@@ -299,8 +299,9 @@ class VisionTransformer(nn.Module):
         x = self.norm(x)
         return x[:, 0]
 
-    def forward(self, x):
+    def forward(self, x, get_feature=False):
         x = self.forward_features(x)
+        if get_feature: return x
         x = self.head(x)
         return x
 
@@ -330,8 +331,8 @@ class vit_base_patch16_224(nn.Module):
         if self.pretrained:
             load_pretrained(self.model, num_classes=self.model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter, img_size=cfg.DATA.TRAIN_CROP_SIZE, num_patches=self.num_patches, attention_type=self.attention_type, pretrained_model=pretrained_model)
 
-    def forward(self, x):
-        x = self.model(x)
+    def forward(self, x, get_feature=False):
+        x = self.model(x, get_feature)
         return x
  
 @MODEL_REGISTRY.register()
@@ -346,6 +347,6 @@ class TimeSformer(nn.Module):
         self.num_patches = (img_size // patch_size) * (img_size // patch_size)
         if self.pretrained:
             load_pretrained(self.model, num_classes=self.model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter, img_size=img_size, num_frames=num_frames, num_patches=self.num_patches, attention_type=self.attention_type, pretrained_model=pretrained_model)
-    def forward(self, x):
-        x = self.model(x)
+    def forward(self, x, get_feature=False):
+        x = self.model(x, get_feature)
         return x

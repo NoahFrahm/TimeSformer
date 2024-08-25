@@ -8,11 +8,12 @@ import os
 from collections import defaultdict, deque
 import torch
 from fvcore.common.timer import Timer
-from sklearn.metrics import average_precision_score
+from sklearn.metrics import average_precision_score, f1_score, roc_auc_score
 
 import timesformer.utils.logging as logging
 import timesformer.utils.metrics as metrics
 import timesformer.utils.misc as misc
+
 
 logger = logging.get_logger(__name__)
 
