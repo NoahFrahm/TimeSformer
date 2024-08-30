@@ -5,8 +5,8 @@ TRAIN:
   EVAL_PERIOD: 1
   CHECKPOINT_PERIOD: 1
   AUTO_RESUME: True 
-  # CHECKPOINT_FILE_PATH: /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_run_outputs/Dance/Dance_video_full/checkpoints/checkpoint_epoch_00015.pyth
-  # FINETUNE: False #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
+  CHECKPOINT_FILE_PATH: /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_run_outputs/Dance/Dance_video_full/checkpoints/checkpoint_epoch_00015.pyth
+  FINETUNE: TRUE #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
 
 DATA:
   PATH_TO_DATA_DIR: /playpen-nas-ssd2/data_organization/Dance/multimodal #place my path to data here

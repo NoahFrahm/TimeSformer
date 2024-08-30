@@ -93,3 +93,36 @@ def load_config(args):
     # Create the checkpoint dir.
     cu.make_checkpoint_dir(cfg.OUTPUT_DIR)
     return cfg
+
+
+def indirect_load_config(cfg_file=None, output_dir=None, num_shards=None, shard_id=None, rng_seed=None, opts=None, checkpoint_path=''):
+    """
+    Given the arguemnts, load and initialize the configs.
+    Args:
+        args (argument): arguments includes `shard_id`, `num_shards`,
+            `init_method`, `cfg_file`, and `opts`.
+    """
+    # Setup cfg.
+    cfg = get_cfg()
+    cfg.set_new_allowed(True)  # Add this line to fix issues with egoexo yml file cfg
+    
+    # Load config from cfg.
+    if cfg_file is not None:
+        cfg.merge_from_file(cfg_file)
+    # Load config from command line, overwrite config from opts.
+    if opts is not None:
+        cfg.merge_from_list(opts)
+
+    # Inherit parameters from args.
+    if num_shards is not None and shard_id is not None:
+        cfg.NUM_SHARDS = num_shards
+        cfg.SHARD_ID = shard_id
+    if rng_seed is not None:
+        cfg.RNG_SEED = rng_seed
+    if output_dir is not None:
+        cfg.OUTPUT_DIR = output_dir
+
+    # Create the checkpoint dir.
+    cu.make_checkpoint_dir(cfg.OUTPUT_DIR + '/' + checkpoint_path, sub_dir=False) #TODO: ensure that subdir arg comes from cfg
+    return cfg
+

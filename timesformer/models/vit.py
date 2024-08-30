@@ -246,7 +246,7 @@ class VisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x):
+    def forward_features(self, x, get_full_features=False):
         B = x.shape[0]
         x, T, W = self.patch_embed(x)
         cls_tokens = self.cls_token.expand(x.size(0), -1, -1)
@@ -297,11 +297,14 @@ class VisionTransformer(nn.Module):
             x = torch.mean(x, 1) # averaging predictions for every frame
 
         x = self.norm(x)
+        # TODO: get the tokens from here?
         return x[:, 0]
 
     def forward(self, x, get_feature=False):
+        if get_feature: 
+            return self.forward_features(x)
+            # return self.forward_features(x, get_full_features=True)
         x = self.forward_features(x)
-        if get_feature: return x
         x = self.head(x)
         return x
 
@@ -328,6 +331,7 @@ class vit_base_patch16_224(nn.Module):
         self.model.default_cfg = default_cfgs['vit_base_patch16_224']
         self.num_patches = (cfg.DATA.TRAIN_CROP_SIZE // patch_size) * (cfg.DATA.TRAIN_CROP_SIZE // patch_size)
         pretrained_model=cfg.TIMESFORMER.PRETRAINED_MODEL
+        
         if self.pretrained:
             load_pretrained(self.model, num_classes=self.model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter, img_size=cfg.DATA.TRAIN_CROP_SIZE, num_patches=self.num_patches, attention_type=self.attention_type, pretrained_model=pretrained_model)
 

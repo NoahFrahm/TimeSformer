@@ -44,11 +44,28 @@ def build_model(cfg, gpu_id=None):
         # Transfer the model to the current GPU device
         model = model.cuda(device=cur_device)
 
-
     # Use multi-process data parallel model in the multi-gpu setting
     if cfg.NUM_GPUS > 1:
         # Make model replica operate on the current device
         model = torch.nn.parallel.DistributedDataParallel(
-            module=model, device_ids=[cur_device], output_device=cur_device
+            module=model, device_ids=[cur_device], output_device=cur_device, 
+            
+            # TODO: if cfg says moe, do this arg
+            find_unused_parameters=True #Added by me
         )
+    return model
+
+
+def vanilla_build_model(cfg):
+    """
+    Builds the video model.
+    Args:
+        cfg (configs): configs that contains the hyper-parameters to build the
+        backbone. Details can be seen in slowfast/config/defaults.py.
+    """
+   
+    # Construct the model
+    name = cfg.MODEL.MODEL_NAME
+    model = MODEL_REGISTRY.get(name)(cfg)
+
     return model

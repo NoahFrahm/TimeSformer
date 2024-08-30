@@ -18,13 +18,13 @@ import torch.nn.functional as F
 logger = logging.get_logger(__name__)
 
 
-def make_checkpoint_dir(path_to_job):
+def make_checkpoint_dir(path_to_job, sub_dir=True):
     """
     Creates the checkpoint directory (if not present already).
     Args:
         path_to_job (string): the path to the folder of the current job.
     """
-    checkpoint_dir = os.path.join(path_to_job, "checkpoints")
+    checkpoint_dir = os.path.join(path_to_job, "checkpoints") if sub_dir else os.path.join(path_to_job) #NOTE: added this to allow more customizable checkpoint pathing
     # Create the checkpoint dir from the master process
     if du.is_master_proc() and not PathManager.exists(checkpoint_dir):
         try:
@@ -105,6 +105,7 @@ def is_checkpoint_epoch(cfg, cur_epoch, multigrid_schedule=None):
 
 
 def save_checkpoint(path_to_job, model, optimizer, epoch, cfg):
+    # TODO: for our segmented model we save checkpoints for each part seperately
     """
     Save a checkpoint.
     Args:
@@ -119,7 +120,43 @@ def save_checkpoint(path_to_job, model, optimizer, epoch, cfg):
     # Ensure that the checkpoint dir exists.
     PathManager.mkdirs(get_checkpoint_dir(path_to_job))
     # Omit the DDP wrapper in the multi-gpu setting.
+
+    # TODO: custom saving for compartmentalized model
+    if cfg.MODEL.MODEL_NAME == 'fusion_four_modality':
+        print("This model needs special checkpointing")
+
+        # create a dict of submodel state dicts
+        submodel_sds = {}
+        breakpoint()
+        submodel = model.model
+        submodel_sds['rgb'] = (submodel.module.rgb.state_dict() if cfg.NUM_GPUS > 1 else submodel.rgb.state_dict(), cfg.MODEL.RGB_FINE_TUNE, 'rgb_model_checkpoints')
+        submodel_sds['pose'] = (submodel.module.pose.state_dict() if cfg.NUM_GPUS > 1 else submodel.pose.state_dict(), cfg.MODEL.POSE_FINE_TUNE, 'pose_model_checkpoints')
+        submodel_sds['depth'] = (submodel.module.depth.state_dict() if cfg.NUM_GPUS > 1 else submodel.depth.state_dict(), cfg.MODEL.DEPTH_FINE_TUNE, 'depth_model_checkpoints')
+        submodel_sds['flow'] = (submodel.module.flow.state_dict() if cfg.NUM_GPUS > 1 else submodel.flow.state_dict(), cfg.MODEL.FLOW_FINE_TUNE, 'flow_model_checkpoints')
+        submodel_sds['fusion_head'] = (submodel.module.fusion_head.state_dict() if cfg.NUM_GPUS > 1 else submodel.fusion_head.state_dict(), cfg.MODEL.FUSION_FINE_TUNE, 'fusion_head_checkpoints')
+
+        # sub to normal if needed
+        # write to output path
+        # return list of checkpoints made
+        # only save if fine tune is selected
+        for sub_model, (sd, save_ckpt, save_path) in submodel_sds.items():
+            if not save_ckpt: continue
+
+            normalized_sd = sub_to_normal_bn(sd)
+            # Record the state.
+            checkpoint = {
+                "epoch": epoch,
+                "model_state": normalized_sd,
+                "optimizer_state": optimizer.state_dict(),
+                "cfg": cfg.dump(), #doesn't seem to be used elsewhere so not critical to save cfg for models, could maybe put path here instead
+            }
+            # Write the checkpoint. TODO: make this cleaner
+            path_to_checkpoint = os.path.join(save_path, "checkpoint_epoch_{:05d}.pyth".format(epoch + 1))
+            with PathManager.open(path_to_checkpoint, "wb") as f:
+                torch.save(checkpoint, f)
+    
     sd = model.module.state_dict() if cfg.NUM_GPUS > 1 else model.state_dict()
+    
     normalized_sd = sub_to_normal_bn(sd)
 
     # Record the state.
@@ -133,6 +170,7 @@ def save_checkpoint(path_to_job, model, optimizer, epoch, cfg):
     path_to_checkpoint = get_path_to_checkpoint(path_to_job, epoch + 1)
     with PathManager.open(path_to_checkpoint, "wb") as f:
         torch.save(checkpoint, f)
+
     return path_to_checkpoint
 
 
@@ -225,7 +263,6 @@ def load_checkpoint(
       ms = model.module if data_parallel else model
     except:
       ms = model
-
     if convert_from_caffe2:
         with PathManager.open(path_to_checkpoint, "rb") as f:
             caffe2_checkpoint = pickle.load(f, encoding="latin1")

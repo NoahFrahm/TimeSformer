@@ -16,7 +16,7 @@ logger = logging.get_logger(__name__)
 
 
 @DATASET_REGISTRY.register()
-class MOE(torch.utils.data.Dataset):
+class Moe(torch.utils.data.Dataset):
     # TODO: fix to be accurate to how we load data from this dataset, update doc string etc.
     """
     Mixture of experts video loader. Construct the MOE video loader, then sample
@@ -34,7 +34,7 @@ class MOE(torch.utils.data.Dataset):
         Construct the PoseGuided video loader with a given csv file. The format of
         the csv file is:
         ```
-        path_to_video_1 label_1
+        path_to_pose_video_1 path_to_depth_video_1 path_to_flow_video_1 path_to_rgb_video_1 label_1
         path_to_video_2 label_2
         ...
         path_to_video_N label_N
@@ -87,45 +87,50 @@ class MOE(torch.utils.data.Dataset):
             path_to_file
         )
 
-        self._path_to_videos = []
-        self._path_to_pose_tensors = []
+        self._path_to_rgb_videos = []
+        self._path_to_pose_videos = []
+        self._path_to_depth_videos = []
+        self._path_to_flow_videos = []
         self._labels = []
         self._spatial_temporal_idx = []
         with PathManager.open(path_to_file, "r") as f:
             for clip_idx, path_label in enumerate(f.read().splitlines()):
+                
                 assert (
-                    # NOTE: should be 3 but there is a fourth in the current version of the csv, so 4 for now
-                    # len(path_label.split(self.cfg.DATA.PATH_LABEL_SEPARATOR))
-                    # == 3
+                    # NOTE: 4 videos + 1 label
                     len(path_label.split(self.cfg.DATA.PATH_LABEL_SEPARATOR))
-                    == 4
+                    == 5
                 )
-                # NOTE: need to update this once we only have 3 in the csv
-                # video_path, pose_path, label = path_label.split(
-                #     self.cfg.DATA.PATH_LABEL_SEPARATOR
-                # )
-                video_path, key_points, feature_path, label = path_label.split(
+                pose_video_path, depth_video_path, flow_video_path, rgb_video_path, label = path_label.split(
                     self.cfg.DATA.PATH_LABEL_SEPARATOR
                 )
         
+                # TODO: update this to make different places to save modality video paths
                 for idx in range(self._num_clips):
-                    self._path_to_videos.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, video_path)
+                    self._path_to_rgb_videos.append(
+                        os.path.join(self.cfg.DATA.PATH_PREFIX, rgb_video_path)
                     )
-                    self._path_to_pose_tensors.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, feature_path)
+                    self._path_to_pose_videos.append(
+                        os.path.join(self.cfg.DATA.PATH_PREFIX, pose_video_path)
                     )
+                    self._path_to_depth_videos.append(
+                        os.path.join(self.cfg.DATA.PATH_PREFIX, depth_video_path)
+                    )
+                    self._path_to_flow_videos.append(
+                        os.path.join(self.cfg.DATA.PATH_PREFIX, flow_video_path)
+                    )
+
                     self._labels.append(int(label))
                     self._spatial_temporal_idx.append(idx)
                     self._video_meta[clip_idx * self._num_clips + idx] = {}
         assert (
-            len(self._path_to_videos) > 0
-        ), "Failed to load PoseGuided split {} from {}".format(
+            len(self._labels) > 0
+        ), "Failed to load MOE split {} from {}".format(
             self._split_idx, path_to_file
         )
         logger.info(
-            "Constructing PoseGuided dataloader (size: {}) from {}".format(
-                len(self._path_to_videos), path_to_file
+            "Constructing MOE dataloader (size: {}) from {}".format(
+                len(self._labels), path_to_file
             )
         )
 
@@ -210,44 +215,88 @@ class MOE(torch.utils.data.Dataset):
         # Try to decode and sample a clip from a video. If the video can not be
         # decoded, repeatly find a random video replacement that can be decoded.
         for i_try in range(self._num_retries):
-            video_container, pose_container = None, None
+            rgb_video_container, pose_video_container, flow_video_container, depth_video_container = None, None, None, None
             
-            try: # video portion
-                video_container = container.get_video_container(
-                    self._path_to_videos[index],
+            try: # rgb video portion
+                rgb_video_container = container.get_video_container(
+                    self._path_to_rgb_videos[index],
                     self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
                     self.cfg.DATA.DECODING_BACKEND,
                 )
-                
             except Exception as e:
                 logger.info(
-                    "Failed to load video from {} with error {}".format(
-                        self._path_to_videos[index], e
+                    "Failed to load rgb video from {} with error {}".format(
+                        self._path_to_rgb_videos[index], e
+                    )
+                )
+            
+            try: # pose video portion
+                pose_video_container = container.get_video_container(
+                    self._path_to_pose_videos[index],
+                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                    self.cfg.DATA.DECODING_BACKEND,
+                )
+            except Exception as e:
+                logger.info(
+                    "Failed to load pose video from {} with error {}".format(
+                        self._path_to_pose_videos[index], e
+                    )
+                )
+            
+            try: # flow video portion
+                flow_video_container = container.get_video_container(
+                    self._path_to_flow_videos[index],
+                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                    self.cfg.DATA.DECODING_BACKEND,
+                )
+            except Exception as e:
+                logger.info(
+                    "Failed to load flow video from {} with error {}".format(
+                        self._path_to_flow_videos[index], e
                     )
                 )
 
-            try: # pose tensor portion
-                pose_container = self._path_to_pose_tensors[index]        
+            try: # depth video portion
+                depth_video_container = container.get_video_container(
+                    self._path_to_depth_videos[index],
+                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                    self.cfg.DATA.DECODING_BACKEND,
+                )
             except Exception as e:
                 logger.info(
-                    "Failed to load pose feature tensor from {} with error {}".format(
-                        self._path_to_pose_tensors[index], e
+                    "Failed to load depth video from {} with error {}".format(
+                        self._path_to_depth_videos[index], e
                     )
                 )
             
             # Select a random video if the current video was not able to access.
-            if video_container is None or pose_container is None:
+            if rgb_video_container is None or pose_video_container is None or depth_video_container is None or flow_video_container is None:
                 
-                if pose_container is None:
+                if rgb_video_container is None:
                     logger.warning(
-                        "Failed to load pose idx {} from {}; trial {}".format(
-                            index, self._path_to_pose_tensors[index], i_try
+                        "Failed to load rgb video idx {} from {}; trial {}".format(
+                            index, self._path_to_rgb_videos[index], i_try
                         )
                     )
-                if video_container is None:
-                     logger.warning(
-                        "Failed to meta load video idx {} from {}; trial {}".format(
-                            index, self._path_to_videos[index], i_try
+
+                if pose_video_container is None:
+                    logger.warning(
+                        "Failed to load pose video idx {} from {}; trial {}".format(
+                            index, self._path_to_pose_videos[index], i_try
+                        )
+                    )
+
+                if depth_video_container is None:
+                    logger.warning(
+                        "Failed to load depth video idx {} from {}; trial {}".format(
+                            index, self._path_to_depth_videos[index], i_try
+                        )
+                    )
+
+                if flow_video_container is None:
+                    logger.warning(
+                        "Failed to load flow video idx {} from {}; trial {}".format(
+                            index, self._path_to_flow_videos[index], i_try
                         )
                     )
 
@@ -260,8 +309,8 @@ class MOE(torch.utils.data.Dataset):
             # aka we need one to one correspondance between frame in video and pose feature
             # pose tokens TODO: create decode call here that can get corresponding pose features
             # Decode video. Meta info is used to perform selective decoding.
-            frames, frame_mask = decoder.pt_decode( 
-                video_container,
+            modality_frames = decoder.multi_video_decode( 
+                [rgb_video_container, pose_video_container, depth_video_container, flow_video_container],
                 sampling_rate,
                 self.cfg.DATA.NUM_FRAMES,
                 temporal_sample_index,
@@ -274,55 +323,56 @@ class MOE(torch.utils.data.Dataset):
 
             # If decoding failed (wrong format, video is too short, and etc),
             # select another video.
-            if frames is None:
-                logger.warning(
-                    "Failed to decode video idx {} from {}; trial {}".format(
-                        index, self._path_to_videos[index], i_try
+            
+            modified_frames = []
+            for frames in modality_frames:
+                if frames is None:
+                    logger.warning(
+                        "Failed to decode video idx {} from {}; trial {}".format(
+                            index, self._path_to_videos[index], i_try
+                        )
                     )
+                    if self.mode not in ["test"] and i_try > self._num_retries // 2:
+                        # let's try another one
+                        index = random.randint(0, len(self._path_to_videos) - 1)
+                    continue
+
+                label = self._labels[index]
+
+                # Perform color normalization.
+                frames = utils.tensor_normalize(
+                    frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
                 )
-                if self.mode not in ["test"] and i_try > self._num_retries // 2:
-                    # let's try another one
-                    index = random.randint(0, len(self._path_to_videos) - 1)
-                continue
 
-            label = self._labels[index]
+                # T H W C -> C T H W.
+                frames = frames.permute(3, 0, 1, 2)
+                # Perform data augmentation.
+                frames = utils.spatial_sampling(
+                    frames,
+                    spatial_idx=spatial_sample_index,
+                    min_scale=min_scale,
+                    max_scale=max_scale,
+                    crop_size=crop_size,
+                    random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
+                    inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+                )
 
-            # Perform color normalization.
-            frames = utils.tensor_normalize(
-                frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
-            )
+                # NOTE: we will be using TimesFormer modality models so no need for this
+                # if not self.cfg.MODEL.ARCH in ['vit']:
+                #     frames = utils.pack_pathway_output(self.cfg, frames)
+                # else:
 
-            # T H W C -> C T H W.
-            frames = frames.permute(3, 0, 1, 2)
-            # Perform data augmentation.
-            frames = utils.spatial_sampling(
-                frames,
-                spatial_idx=spatial_sample_index,
-                min_scale=min_scale,
-                max_scale=max_scale,
-                crop_size=crop_size,
-                random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
-                inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
-            )
-
-            if not self.cfg.MODEL.ARCH in ['vit']:
-                frames = utils.pack_pathway_output(self.cfg, frames)
-            else:
                 # Perform temporal sampling from the fast pathway.
                 frames = torch.index_select(
-                     frames,
-                     1,
-                     torch.linspace(
-                         0, frames.shape[1] - 1, self.cfg.DATA.NUM_FRAMES
+                    frames,
+                    1,
+                    torch.linspace(
+                        0, frames.shape[1] - 1, self.cfg.DATA.NUM_FRAMES
 
-                     ).long(),
+                    ).long(),
                 )
-
-            pose_features = torch.load(pose_container, map_location='cpu').detach().squeeze()
-            pose_features = pose_features[frame_mask]
-            pose_features = pose_features.permute(1, 0, 2) # T Keypoint Feature -> Keypoint T Feature
-
-            return [frames, pose_features] , label, index, {}
+                modified_frames.append(frames)
+            return modified_frames, label, index, {}
         else:
             raise RuntimeError(
                 "Failed to fetch video after {} retries.".format(
@@ -334,6 +384,6 @@ class MOE(torch.utils.data.Dataset):
     def __len__(self):
         """
         Returns:
-            (int): the number of videos in the dataset.
+            (int): the number of data points in the dataset.
         """
-        return len(self._path_to_videos)
+        return len(self._labels)
