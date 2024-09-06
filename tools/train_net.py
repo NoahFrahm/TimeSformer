@@ -111,9 +111,14 @@ def train_epoch(
             loss.backward()
             if (cur_iter + 1) % num_iters == 0:
                 for p in model.parameters():
-                    p.grad /= num_iters
+                    # TODO: we need to skip parameters that are frozen?
+                    try: p.grad /= num_iters
+                    except: 
+                        continue
+                        print("parameter has no attribute grad")
                 optimizer.step()
                 optimizer.zero_grad()
+            
 
         if cfg.DETECTION.ENABLE:
             if cfg.NUM_GPUS > 1:
@@ -411,7 +416,8 @@ def train(cfg):
     if du.is_master_proc() and cfg.LOG_MODEL_INFO:
         misc.log_model_info(model, cfg, use_train_input=True)
 
-    # Construct the optimizer.
+    # Construct the optimizer. 
+    # TODO: make this more simple if we use MOE
     optimizer = optim.construct_optimizer(model, cfg)
 
     # Load a checkpoint to resume training if applicable.

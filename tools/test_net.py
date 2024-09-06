@@ -167,6 +167,7 @@ def test(cfg):
 
     # Create video testing loaders.
     test_loader = loader.construct_loader(cfg, "test")
+    
     logger.info("Testing model for {} iterations".format(len(test_loader)))
 
     assert (

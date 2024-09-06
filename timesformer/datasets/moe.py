@@ -72,7 +72,7 @@ class Moe(torch.utils.data.Dataset):
                 cfg.TEST.NUM_ENSEMBLE_VIEWS * cfg.TEST.NUM_SPATIAL_CROPS
             )
 
-        logger.info("Constructing PoseGuided {}...".format(mode))
+        logger.info("Constructing MOE {}...".format(mode))
         self._construct_loader()
 
 
@@ -95,7 +95,6 @@ class Moe(torch.utils.data.Dataset):
         self._spatial_temporal_idx = []
         with PathManager.open(path_to_file, "r") as f:
             for clip_idx, path_label in enumerate(f.read().splitlines()):
-                
                 assert (
                     # NOTE: 4 videos + 1 label
                     len(path_label.split(self.cfg.DATA.PATH_LABEL_SEPARATOR))
@@ -128,6 +127,7 @@ class Moe(torch.utils.data.Dataset):
         ), "Failed to load MOE split {} from {}".format(
             self._split_idx, path_to_file
         )
+
         logger.info(
             "Constructing MOE dataloader (size: {}) from {}".format(
                 len(self._labels), path_to_file

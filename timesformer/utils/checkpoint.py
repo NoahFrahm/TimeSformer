@@ -121,39 +121,39 @@ def save_checkpoint(path_to_job, model, optimizer, epoch, cfg):
     PathManager.mkdirs(get_checkpoint_dir(path_to_job))
     # Omit the DDP wrapper in the multi-gpu setting.
 
-    # TODO: custom saving for compartmentalized model
-    if cfg.MODEL.MODEL_NAME == 'fusion_four_modality':
-        print("This model needs special checkpointing")
+    # # TODO: custom saving for compartmentalized model
+    # if cfg.MODEL.MODEL_NAME == 'fusion_four_modality':
+    #     print("This model needs special checkpointing")
 
-        # create a dict of submodel state dicts
-        submodel_sds = {}
-        breakpoint()
-        submodel = model.model
-        submodel_sds['rgb'] = (submodel.module.rgb.state_dict() if cfg.NUM_GPUS > 1 else submodel.rgb.state_dict(), cfg.MODEL.RGB_FINE_TUNE, 'rgb_model_checkpoints')
-        submodel_sds['pose'] = (submodel.module.pose.state_dict() if cfg.NUM_GPUS > 1 else submodel.pose.state_dict(), cfg.MODEL.POSE_FINE_TUNE, 'pose_model_checkpoints')
-        submodel_sds['depth'] = (submodel.module.depth.state_dict() if cfg.NUM_GPUS > 1 else submodel.depth.state_dict(), cfg.MODEL.DEPTH_FINE_TUNE, 'depth_model_checkpoints')
-        submodel_sds['flow'] = (submodel.module.flow.state_dict() if cfg.NUM_GPUS > 1 else submodel.flow.state_dict(), cfg.MODEL.FLOW_FINE_TUNE, 'flow_model_checkpoints')
-        submodel_sds['fusion_head'] = (submodel.module.fusion_head.state_dict() if cfg.NUM_GPUS > 1 else submodel.fusion_head.state_dict(), cfg.MODEL.FUSION_FINE_TUNE, 'fusion_head_checkpoints')
+    #     # create a dict of submodel state dicts
+    #     submodel_sds = {}
+    #     # breakpoint()
+    #     submodel = model.model
+    #     submodel_sds['rgb'] = (submodel.module.rgb.state_dict() if cfg.NUM_GPUS > 1 else submodel.rgb.state_dict(), cfg.MODEL.RGB_FINE_TUNE, 'rgb_model_checkpoints')
+    #     submodel_sds['pose'] = (submodel.module.pose.state_dict() if cfg.NUM_GPUS > 1 else submodel.pose.state_dict(), cfg.MODEL.POSE_FINE_TUNE, 'pose_model_checkpoints')
+    #     submodel_sds['depth'] = (submodel.module.depth.state_dict() if cfg.NUM_GPUS > 1 else submodel.depth.state_dict(), cfg.MODEL.DEPTH_FINE_TUNE, 'depth_model_checkpoints')
+    #     submodel_sds['flow'] = (submodel.module.flow.state_dict() if cfg.NUM_GPUS > 1 else submodel.flow.state_dict(), cfg.MODEL.FLOW_FINE_TUNE, 'flow_model_checkpoints')
+    #     submodel_sds['fusion_head'] = (submodel.module.fusion_head.state_dict() if cfg.NUM_GPUS > 1 else submodel.fusion_head.state_dict(), cfg.MODEL.FUSION_FINE_TUNE, 'fusion_head_checkpoints')
 
-        # sub to normal if needed
-        # write to output path
-        # return list of checkpoints made
-        # only save if fine tune is selected
-        for sub_model, (sd, save_ckpt, save_path) in submodel_sds.items():
-            if not save_ckpt: continue
+    #     # sub to normal if needed
+    #     # write to output path
+    #     # return list of checkpoints made
+    #     # only save if fine tune is selected
+    #     for sub_model, (sd, save_ckpt, save_path) in submodel_sds.items():
+    #         if not save_ckpt: continue
 
-            normalized_sd = sub_to_normal_bn(sd)
-            # Record the state.
-            checkpoint = {
-                "epoch": epoch,
-                "model_state": normalized_sd,
-                "optimizer_state": optimizer.state_dict(),
-                "cfg": cfg.dump(), #doesn't seem to be used elsewhere so not critical to save cfg for models, could maybe put path here instead
-            }
-            # Write the checkpoint. TODO: make this cleaner
-            path_to_checkpoint = os.path.join(save_path, "checkpoint_epoch_{:05d}.pyth".format(epoch + 1))
-            with PathManager.open(path_to_checkpoint, "wb") as f:
-                torch.save(checkpoint, f)
+    #         normalized_sd = sub_to_normal_bn(sd)
+    #         # Record the state.
+    #         checkpoint = {
+    #             "epoch": epoch,
+    #             "model_state": normalized_sd,
+    #             "optimizer_state": optimizer.state_dict(),
+    #             "cfg": cfg.dump(), #doesn't seem to be used elsewhere so not critical to save cfg for models, could maybe put path here instead
+    #         }
+    #         # Write the checkpoint. TODO: make this cleaner
+    #         path_to_checkpoint = os.path.join(save_path, "checkpoint_epoch_{:05d}.pyth".format(epoch + 1))
+    #         with PathManager.open(path_to_checkpoint, "wb") as f:
+    #             torch.save(checkpoint, f)
     
     sd = model.module.state_dict() if cfg.NUM_GPUS > 1 else model.state_dict()
     
