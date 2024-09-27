@@ -26,27 +26,28 @@ SOLVER:
   LR_POLICY: steps_with_relative_lrs
   STEPS: [0, 11, 14]
   LRS: [1, 0.1, 0.01]
-  MAX_EPOCH: 25
+  MAX_EPOCH: 15
   MOMENTUM: 0.9
   WEIGHT_DECAY: 1e-4
   OPTIMIZING_METHOD: sgd
 MODEL:
   MODEL_NAME: fusion_four_modality
+  LOSS_FUNC: cross_entropy
   NUM_CLASSES: 4
   
   FUSION_HEAD_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/fusion_head_configs/four_class/transformer_fusion.yaml
   FUSION_FINE_TUNE: True
   
-  RGB_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_rgb.yaml
+  RGB_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/dance_modality_model_configs/TimeSformer_divST_16x16_448_rgb.yaml
   RGB_FINE_TUNE: False
   
-  POSE_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_pose.yaml
+  POSE_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/dance_modality_model_configs/TimeSformer_divST_16x16_448_pose.yaml
   POSE_FINE_TUNE: False
   
-  DEPTH_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_depth.yaml
+  DEPTH_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/dance_modality_model_configs/TimeSformer_divST_16x16_448_depth.yaml
   DEPTH_FINE_TUNE: False
   
-  FLOW_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_flow.yaml
+  FLOW_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/dance_modality_model_configs/TimeSformer_divST_16x16_448_flow.yaml
   FLOW_FINE_TUNE: False
 TEST:
   ENABLE: True
@@ -60,5 +61,8 @@ DATA_LOADER:
 NUM_GPUS: 8
 NUM_SHARDS: 1
 RNG_SEED: 0
-OUTPUT_DIR: ./transformer_fusion_four
+# OUTPUT_DIR: ./transformer_fusion_four_basketball
+# OUTPUT_DIR: ./transformer_fusion_dance_evl
+# OUTPUT_DIR: ./transformer_fusion_dance_full_mse
+OUTPUT_DIR: ./outputs/transformer_fusion_four_basketball
 ALL_TOKENS: False

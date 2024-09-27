@@ -67,10 +67,18 @@ def multi_temporal_sampling(frames, start_idx, end_idx, num_samples):
         frames (tersor): a tensor of temporal sampled video frames, dimension is
             `num clip frames` x `channel` x `height` x `width`.
     """
+    # index = torch.linspace(start_idx, end_idx, num_samples)
+    # index_range = min(*[frame_set.shape[0] for frame_set in frames])
+    # index = torch.clamp(index, 0, index_range - 1).long()
+    # sampled_frames = [torch.index_select(frame_set, 0, index) for frame_set in frames]
+    
     index = torch.linspace(start_idx, end_idx, num_samples)
-    index_range = min(*[frame_set.shape[0] for frame_set in frames])
-    index = torch.clamp(index, 0, index_range - 1).long()
-    sampled_frames = [torch.index_select(frame_set, 0, index) for frame_set in frames]
+    valid_index_range = min(frame_set.shape[0] for frame_set in frames if frame_set is not None)
+    index = torch.clamp(index, 0, valid_index_range - 1).long()
+    sampled_frames = [
+        torch.index_select(frame_set, 0, index) if frame_set is not None else None
+        for frame_set in frames
+    ]
 
     return sampled_frames
 
@@ -595,20 +603,22 @@ def multi_video_decode(
         if backend == "pyav":
             decoded_containers = []
             for container in containers:
-                frames, fps, decode_all_video, timestamps = pyav_decode(
-                    container,
-                    sampling_rate,
-                    num_frames,
-                    clip_idx,
-                    num_clips,
-                    target_fps,
-                    start,
-                    end,
-                    duration,
-                    frames_length,
-                    with_timestamp=True
-                )
-                decoded_containers.append((frames, fps, decode_all_video, timestamps))
+                if not container: decoded_containers.append(None) # if any of the containers are None, presumably since we dont evaluate that modality, continue
+                else:
+                    frames, fps, decode_all_video, timestamps = pyav_decode(
+                        container,
+                        sampling_rate,
+                        num_frames,
+                        clip_idx,
+                        num_clips,
+                        target_fps,
+                        start,
+                        end,
+                        duration,
+                        frames_length,
+                        with_timestamp=True
+                    )
+                    decoded_containers.append((frames, fps, decode_all_video, timestamps))
         elif backend == "torchvision":
             frames, fps, decode_all_video = torchvision_decode(
                 container,
@@ -633,8 +643,24 @@ def multi_video_decode(
     if decoded_containers is None or len(decoded_containers) == 0:
         return None
 
-    min_video_size = min(*[decoded_container[0].shape[0] for decoded_container in decoded_containers])
-    fps, decode_all_video = decoded_containers[0][1], decoded_containers[0][2]
+    # add logic to handle None elements
+    # min_video_size = min(*[decoded_container[0].shape[0] for decoded_container in decoded_containers])
+    min_video_size = min(
+        decoded_container[0].shape[0] 
+        for decoded_container in decoded_containers 
+        if decoded_container is not None and decoded_container[0] is not None
+    )
+
+    # fps, decode_all_video = decoded_containers[0][1], decoded_containers[0][2]
+    fps, decode_all_video = None, None
+    for decoded_container in decoded_containers:
+        if decoded_container is not None and len(decoded_container) >= 3:
+            fps, decode_all_video = decoded_container[1], decoded_container[2]
+            # Exit loop as soon as we find the first valid container
+            if fps is not None and decode_all_video is not None:
+                break
+
+
     clip_sz = sampling_rate * num_frames / target_fps * fps
     start_idx, end_idx = get_start_end_idx(
         min_video_size,
@@ -644,7 +670,12 @@ def multi_video_decode(
     )
 
     # TODO: generate mask here so this is the only function we need to modify, the rest can be iterative
-    sampled_frames = multi_temporal_sampling([frames for frames, _, _, _ in decoded_containers], start_idx, end_idx, num_frames)
+    # sampled_frames = multi_temporal_sampling([frames for frames, _, _, _ in decoded_containers], start_idx, end_idx, num_frames)
+    sampled_frames = multi_temporal_sampling([
+        decoded_container[0] if decoded_container is not None else None 
+        for decoded_container in decoded_containers
+        ], start_idx, end_idx, num_frames)
+
 
     return sampled_frames
 

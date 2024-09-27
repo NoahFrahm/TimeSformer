@@ -8,7 +8,7 @@ import os
 from collections import defaultdict, deque
 import torch
 from fvcore.common.timer import Timer
-from sklearn.metrics import average_precision_score, f1_score, roc_auc_score
+from sklearn.metrics import average_precision_score, f1_score, roc_auc_score, mean_squared_error
 
 import timesformer.utils.logging as logging
 import timesformer.utils.metrics as metrics
@@ -34,6 +34,7 @@ class TestMeter(object):
         overall_iters,
         multi_label=False,
         ensemble_method="sum",
+        
     ):
         """
         Construct tensors to store the predictions and labels. Expect to get
@@ -104,6 +105,7 @@ class TestMeter(object):
                     self.video_labels[vid_id].type(torch.FloatTensor),
                     labels[ind].type(torch.FloatTensor),
                 )
+            # breakpoint()
             self.video_labels[vid_id] = labels[ind]
             if self.ensemble_method == "sum":
                 self.video_preds[vid_id] += preds[ind]
@@ -153,49 +155,7 @@ class TestMeter(object):
         self.data_timer.pause()
         self.net_timer.reset()
 
-    # def finalize_metrics(self, ks=(1, 5)):
-    #     """
-    #     Calculate and log the final ensembled metrics.
-    #     ks (tuple): list of top-k values for topk_accuracies. For example,
-    #         ks = (1, 5) correspods to top-1 and top-5 accuracy.
-    #     """
-    #     if not all(self.clip_count == self.num_clips):
-    #         logger.warning(
-    #             "clip count {} ~= num clips {}".format(
-    #                 ", ".join(
-    #                     [
-    #                         "{}: {}".format(i, k)
-    #                         for i, k in enumerate(self.clip_count.tolist())
-    #                     ]
-    #                 ),
-    #                 self.num_clips,
-    #             )
-    #         )
-
-    #     self.stats = {"split": "test_final"}
-    #     if self.multi_label:
-    #         map = get_map(
-    #             self.video_preds.cpu().numpy(), self.video_labels.cpu().numpy()
-    #         )
-    #         self.stats["map"] = map
-    #     else:
-    #         num_topks_correct = metrics.topks_correct(
-    #             self.video_preds, self.video_labels, ks
-    #         )
-    #         topks = [
-    #             (x / self.video_preds.size(0)) * 100.0
-    #             for x in num_topks_correct
-    #         ]
-
-    #         assert len({len(ks), len(topks)}) == 1
-    #         for k, topk in zip(ks, topks):
-    #             self.stats["top{}_acc".format(k)] = "{:.{prec}f}".format(
-    #                 topk, prec=2
-    #             )
-    #     logging.log_json_stats(self.stats)
-
-    def finalize_metrics(self, ks=(1, 4)):
-
+    def finalize_metrics(self, ks=(1, 2)):
         """
         Calculate and log the final ensembled metrics.
         ks (tuple): list of top-k values for topk_accuracies. For example,
@@ -212,6 +172,8 @@ class TestMeter(object):
                     ),
                     self.num_clips,
                 )
+
+
             )
 
         self.stats = {"split": "test_final"}
@@ -235,15 +197,21 @@ class TestMeter(object):
             assert len({len(ks), len(topks)}) == 1
             # here we need to investigate how topks is calculated, run a val here using config file params
             print("ks: ", ks, "topks: ", topks)
-            # breakpoint()
-
             for k, topk in zip(ks, topks):
                 self.stats["top{}_acc".format(k)] = "{:.{prec}f}".format(
                     topk, prec=2
                 )
 
             preds_max = torch.argmax(self.video_preds, dim=1)
-            print(self.stats)
+
+            try:
+                self.stats['Discrete MSE'] = mean_squared_error(self.video_labels, preds_max)
+                self.stats['Discrete RMSE'] = mean_squared_error(self.video_labels, preds_max, squared=False)
+                continuous_preds = metrics.compute_continuous(self.video_preds)
+                self.stats['Continuous MSE'] = mean_squared_error(self.video_labels, continuous_preds)
+                self.stats['Continuous RMSE'] = mean_squared_error(self.video_labels, continuous_preds, squared=False)
+            except:
+                pass
             try:
                 self.stats['f1_score_macro'] = f1_score(self.video_labels, preds_max, average='macro')
             except:
@@ -260,7 +228,9 @@ class TestMeter(object):
                 self.stats['roc_auc_score_weighted'] = roc_auc_score(self.video_labels, preds_max, average='weighted')
             except:
                 pass
-            
+        
+        logging.log_predictions(preds_max) 
+        logging.log_truth(self.video_labels)
         logging.log_json_stats(self.stats)
 
 class ScalarMeter(object):

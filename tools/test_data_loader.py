@@ -46,14 +46,24 @@ def test_model_arch():
 
 if __name__ == "__main__":
     # Run the test
-    test = 1
+    test = 0
     if test == 0:
         test_dataloader()
     elif test == 1:
         test_model_arch()
 
 
-
+# CUDA_VISIBLE_DEVICES=0 python tools/run_net.py \
+#     --cfg /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/basketball/transformer_fusion_binary_no_pose_bball.yaml \
+#     DATA.PATH_TO_DATA_DIR /playpen-nas-ssd2/data_organization/Basketball/moe_no_pose             \
+#     DATA.CAMERA_VIEW int_v_late          \
+#     NUM_GPUS 1  \
+#     TRAIN.BATCH_SIZE 8             \
+#     MODEL.RGB_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_rgb.yaml       \      
+#     MODEL.DEPTH_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_ \
+#     model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_depth.yaml         \    
+#     MODEL.FLOW_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_flow.yaml      \       
+#     OUTPUT_DIR /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/output/Basketball/Basketball_int_v_late_no_pose_fusion    
 
 # # Old Version
 # def test_dataloader():

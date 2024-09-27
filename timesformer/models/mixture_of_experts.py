@@ -3,6 +3,7 @@
 
 """A More Flexible Video models."""
 
+from tools.attention_maps import TransformerEncoderLayerWithWeights
 import torch
 import torch.nn as nn
 from timesformer.models import build_model, vanilla_build_model
@@ -95,8 +96,9 @@ class FusionTransformer(nn.Module):
         self.d_model = d_model
         # decodes the transformer output into the 4 classes
         self.decoder = nn.Linear(d_model, trg_classes) #TODO: maybe swap this out with non linear layer?
+        
 
-    def forward(self, x, get_features=False):
+    def forward(self, x, get_features=False, apply_sigmoid=False, target_range=10):
         # here we pass the input sequence to the positional encoding layer to add positional encoding to each token
         x_emb = self.positional_encoding(x)
         # Shape (output) -> (Sequence length, batch size, d_model)
@@ -106,8 +108,51 @@ class FusionTransformer(nn.Module):
         # Shape (mean) -> (batch size, d_model)
         # Shape (decoder) -> (batch size, d_model)
         if get_features: return output.mean(0)
+        if apply_sigmoid: 
+            return torch.sigmoid(self.decoder(output.mean(0))) * target_range
         return self.decoder(output.mean(0)) #TODO: why do we do mean?
+
+   
+# Transformer that takes in input directly
+class FusionTransformerAttentionMaps(nn.Module):
+    """
+    Sequence length is capped at 5000 tokens
+    """
+    def __init__(self,
+                 trg_classes, # this is class number
+                 d_model,
+                 dropout,
+                 n_head,
+                 dim_feedforward,
+                 n_layers,
+                 save_path
+                ):
+        super().__init__()
+
+        # set the dimensions for positional encoding (the total number of inputs (i.e. token size)) and the dropout
+        self.positional_encoding = PositionalEncoding(d_model, dropout=dropout)
+
+        # Only using Encoder of Transformer model
+        encoder_layers = TransformerEncoderLayerWithWeights(d_model, n_head, dim_feedforward, dropout, save_path='')
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layers, n_layers)
+
+        self.d_model = d_model
+        # decodes the transformer output into the 4 classes
+        self.decoder = nn.Linear(d_model, trg_classes) #TODO: maybe swap this out with non linear layer?
         
+
+    def forward(self, x, get_features=False, apply_sigmoid=False, target_range=4):
+        # here we pass the input sequence to the positional encoding layer to add positional encoding to each token
+        x_emb = self.positional_encoding(x)
+        # Shape (output) -> (Sequence length, batch size, d_model)
+        output = self.transformer_encoder(x_emb)
+        # We want our output to be in the shape of (batch size, d_model) so that
+        # we can use it with CrossEntropyLoss hence averaging using first (Sequence length) dimension
+        # Shape (mean) -> (batch size, d_model)
+        # Shape (decoder) -> (batch size, d_model)
+        if get_features: return output.mean(0)
+        if apply_sigmoid: return torch.sigmoid(self.decoder(output.mean(0))) * target_range
+        return self.decoder(output.mean(0)) #TODO: why do we do mean?
 
 
 class Mlp(nn.Module):
@@ -247,7 +292,7 @@ class MultiModalityTimeS(nn.Module):
             tokens: the number of tokens that will come from each modality model
     """
 
-    def __init__(self, cfg, fusion_head, rgb_model, pose_model, depth_model, flow_model):
+    def __init__(self, cfg, fusion_head, rgb_model=(None, False), pose_model=(None, False), depth_model=(None, False), flow_model=(None, False)):
         super().__init__()
  
         # 4 Encoder models 
@@ -265,28 +310,37 @@ class MultiModalityTimeS(nn.Module):
     
     def forward(self, x):
         depth, pose, flow, rgb = x
+        modality_tokens = []
 
         # breakpoint()
-        if self.depth_finetune:depth_tokens = self.depth(depth, get_feature=True, get_all=self.all_tokens)
-        else: 
-            with torch.no_grad(): depth_tokens = self.depth(depth, get_feature=True, get_all=self.all_tokens)
+        if self.depth:
+            if self.depth_finetune:depth_tokens = self.depth(depth, get_feature=True, get_all=self.all_tokens)
+            else: 
+                with torch.no_grad(): depth_tokens = self.depth(depth, get_feature=True, get_all=self.all_tokens)
+                modality_tokens.append(depth_tokens)
 
         # breakpoint()
-        if self.pose_finetune: pose_tokens = self.pose(pose, get_feature=True, get_all=self.all_tokens)
-        else:
-            with torch.no_grad(): pose_tokens = self.pose(pose, get_feature=True, get_all=self.all_tokens)
+        if self.pose:
+            if self.pose_finetune: pose_tokens = self.pose(pose, get_feature=True, get_all=self.all_tokens)
+            else:
+                with torch.no_grad(): pose_tokens = self.pose(pose, get_feature=True, get_all=self.all_tokens)
+                modality_tokens.append(pose_tokens)
 
         # breakpoint()
-        if self.flow_finetune: flow_tokens = self.flow(flow, get_feature=True, get_all=self.all_tokens)
-        else:
-            with torch.no_grad(): flow_tokens = self.flow(flow, get_feature=True, get_all=self.all_tokens)
+        if self.flow:
+            if self.flow_finetune: flow_tokens = self.flow(flow, get_feature=True, get_all=self.all_tokens)
+            else:
+                with torch.no_grad(): flow_tokens = self.flow(flow, get_feature=True, get_all=self.all_tokens)
+                modality_tokens.append(flow_tokens)
 
         # breakpoint()
-        if self.rgb_finetune: rgb_tokens = self.rgb(rgb, get_feature=True, get_all=self.all_tokens)
-        else:
-            with torch.no_grad(): rgb_tokens = self.rgb(rgb, get_feature=True, get_all=self.all_tokens)
+        if self.rgb:
+            if self.rgb_finetune: rgb_tokens = self.rgb(rgb, get_feature=True, get_all=self.all_tokens)
+            else:
+                with torch.no_grad(): rgb_tokens = self.rgb(rgb, get_feature=True, get_all=self.all_tokens)
+                modality_tokens.append(rgb_tokens)
 
-        combined = torch.stack((depth_tokens, pose_tokens, flow_tokens, rgb_tokens), 0) # modality x batch x 768
+        combined = torch.stack(tuple(modality_tokens), 0) # modality x batch x 768
         
         if self.fusion_method == 'all':
             modality_tokens = combined.permute(1, 0, 2, 3) # batch x modality x token number x 768
@@ -326,7 +380,8 @@ def get_modality_model_settings(cfg):
     output_paths = [cfg.OUTPUT_DIR + '/rgb', cfg.OUTPUT_DIR + '/pose', cfg.OUTPUT_DIR + '/depth', cfg.OUTPUT_DIR + '/flow']
     checkpoint_paths = ['rgb_model_checkpoints', 'pose_model_checkpoints', 'depth_model_checkpoints', 'flow_model_checkpoints']
     cfg_keys = ['rgb_model', 'pose_model', 'depth_model', 'flow_model']
-    modality_model_cfgs = [cfg.MODEL.RGB_MODEL_CFG, cfg.MODEL.POSE_MODEL_CFG, cfg.MODEL.DEPTH_MODEL_CFG, cfg.MODEL.FLOW_MODEL_CFG]
+    modality_model_cfgs = [get_attribute(cfg, 'MODEL.RGB_MODEL_CFG'), get_attribute(cfg, 'MODEL.POSE_MODEL_CFG'), get_attribute(cfg, 'MODEL.DEPTH_MODEL_CFG'),get_attribute(cfg, 'MODEL.FLOW_MODEL_CFG')]
+    # modality_model_cfgs = [cfg.MODEL.RGB_MODEL_CFG, cfg.MODEL.POSE_MODEL_CFG, cfg.MODEL.DEPTH_MODEL_CFG, cfg.MODEL.FLOW_MODEL_CFG]
     return number_of_shards, shard_id, rng_seed, opts, zip(output_paths, checkpoint_paths, cfg_keys, modality_model_cfgs)
 
 
@@ -366,7 +421,7 @@ class moe_transformer_fusion(nn.Module):
 
         
     def forward(self, x):
-        x = self.model(x)
+        x = self.model(x, )
         return x
 
 
@@ -379,7 +434,11 @@ class transformer_fusion(nn.Module):
         super().__init__()
 
         self.pretrained=cfg.PRETRAINED
-
+        try:
+            self.apply_sigmoid=cfg.MODEL.APPLY_SIGMOID
+        except:
+            self.apply_sigmoid=False
+       
         self.model = FusionTransformer(
                 trg_classes=cfg.MODEL.NUM_CLASSES,
                 d_model=cfg.MODEL.TOKEN_SIZE,
@@ -388,12 +447,13 @@ class transformer_fusion(nn.Module):
                 dim_feedforward=cfg.MODEL.TOKEN_SIZE * 4,
                 n_layers=cfg.MODEL.NUM_LAYERS)
 
+
         if self.pretrained:
             ...
 
         
     def forward(self, x):
-        x = self.model(x)
+        x = self.model(x, apply_sigmoid=self.apply_sigmoid)
         return x
 
 
@@ -426,6 +486,76 @@ class fusion_four_modality(nn.Module):
         # Load Fusion method
         with open(cfg.MODEL.FUSION_HEAD_CFG, 'r') as file:
             fusion_head_cfg = _CfgNode()._load_cfg_from_file(file)
+            if get_attribute(cfg, 'MODEL.NUM_CLASSES'):
+                fusion_head_cfg['MODEL']['NUM_CLASSES'] = get_attribute(cfg, 'MODEL.NUM_CLASSES')
+            else: fusion_head_cfg['MODEL']['NUM_CLASSES'] = 4
+            
+        fusion_head = vanilla_build_model(fusion_head_cfg)
+
+        if get_attribute(fusion_head_cfg, 'TRAIN.CHECKPOINT_FILE_PATH'): 
+            cu.load_checkpoint(fusion_head_cfg.TRAIN.CHECKPOINT_FILE_PATH, fusion_head, data_parallel=False)
+        sub_models['fusion_head'] = (fusion_head, get_attribute(fusion_head_cfg, 'TRAIN.FINETUNE') is True)
+
+        # change this to include fusion head, make cfg global so our custom .train() method can tell which submodels to fix
+        self.sub_models = sub_models
+
+        # Construct full model
+        self.model = MultiModalityTimeS(cfg, **sub_models)
+        # for name, module in self.model.named_children(): print(f'Name: {name}, Module: {module}')
+        # for name, module in self.model.named_children(): print(f'Name: {name}')
+        # for child in model.children(): print(f'Name: {child}')
+        # for child in model.children(): print(f'Name: {type(child.rgb)}')
+       
+    def forward(self, x):
+        x = self.model(x)
+        return x
+
+    def train(self, mode=True):
+        # TODO: custom implementation so we can ensure that submodels remain in eval mode
+        super().train(mode)  # This sets the whole model to training mode
+        # Keep feature extractor modality models in eval mode, TODO: add logic to not force eval if we desire finetuning
+        
+        for sub_model_name, (sub_model, fine_tune) in self.sub_models.items():
+            if not fine_tune: sub_model.eval()
+
+
+@MODEL_REGISTRY.register()
+class modality_fusion(nn.Module):
+    """
+    This setup assumes we dont use pose in the fusion
+    """
+    def __init__(self, cfg, **kwargs):
+        super().__init__()
+        
+        # cfg settings for models
+        number_of_shards, shard_id, rng_seed, opts, modality_model_settings = get_modality_model_settings(cfg)
+        output_path = cfg.OUTPUT_DIR
+
+        # Load modality specific Models
+        sub_models={}
+        for _, checkpoint_path, sub_model_key, modality_cfg in modality_model_settings:
+            if modality_cfg:
+                print(sub_model_key, "is being used as feature")
+                cur_cfg = indirect_load_config(cfg_file=modality_cfg,
+                                                output_dir=output_path,
+                                                num_shards=number_of_shards,
+                                                shard_id=shard_id,
+                                                rng_seed=rng_seed,
+                                                opts=opts,
+                                                checkpoint_path=checkpoint_path
+                                                )
+                cur_sub_model = vanilla_build_model(cur_cfg) #builds the model without any GPU sharding or assignment
+                if get_attribute(cur_cfg, 'TRAIN.CHECKPOINT_FILE_PATH'):
+                    cu.load_checkpoint(cur_cfg.TRAIN.CHECKPOINT_FILE_PATH, cur_sub_model, data_parallel=False)
+                sub_models[sub_model_key] = (cur_sub_model, get_attribute(cfg, 'TRAIN.FINETUNE') is True)
+
+        # Load Fusion method
+        with open(cfg.MODEL.FUSION_HEAD_CFG, 'r') as file:
+            fusion_head_cfg = _CfgNode()._load_cfg_from_file(file)
+            if get_attribute(cfg, 'MODEL.NUM_CLASSES'):
+                fusion_head_cfg['MODEL']['NUM_CLASSES'] = get_attribute(cfg, 'MODEL.NUM_CLASSES')
+            else: fusion_head_cfg['MODEL']['NUM_CLASSES'] = 4
+            
         fusion_head = vanilla_build_model(fusion_head_cfg)
 
         if get_attribute(fusion_head_cfg, 'TRAIN.CHECKPOINT_FILE_PATH'): 

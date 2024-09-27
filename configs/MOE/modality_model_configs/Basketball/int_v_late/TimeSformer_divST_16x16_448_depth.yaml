@@ -1,0 +1,57 @@
+TRAIN:
+  ENABLE: True
+  DATASET: EgoExo
+  BATCH_SIZE: 8
+  EVAL_PERIOD: 1
+  CHECKPOINT_PERIOD: 1
+  AUTO_RESUME: True 
+  CHECKPOINT_FILE_PATH: /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_run_outputs/Basketball-old/Basketball_depth_video_int_v_late/checkpoints/checkpoint_epoch_00015.pyth
+  FINETUNE: False #If using pretrained_checkpoint for Kinetics, HowTo100M or EgoVLPv2, set to True
+
+DATA:
+  PATH_TO_DATA_DIR: /playpen-temp/data_organization/basketball #place my path to data here
+  CAMERA_VIEW: "exo"
+  PATH_PREFIX: /playpen-temp/data_organization/basketball #my path to data
+  NUM_FRAMES: 8
+  SAMPLING_RATE: 16
+  TRAIN_JITTER_SCALES: [448, 512]
+  TRAIN_CROP_SIZE: 448
+  TEST_CROP_SIZE: 448
+  INPUT_CHANNEL_NUM: [3]
+TENSORBOARD:
+  ENABLE: True
+  MODEL_VIS:
+    ENABLE: True
+    GRAD_CAM:
+      ENABLE: True
+      USE_TRUE_LABEL: True
+TIMESFORMER:
+  ATTENTION_TYPE: 'divided_space_time'
+SOLVER:
+  BASE_LR: 0.005
+  LR_POLICY: steps_with_relative_lrs
+  STEPS: [0, 11, 14]
+  LRS: [1, 0.1, 0.01]
+  MAX_EPOCH: 15
+  MOMENTUM: 0.9
+  WEIGHT_DECAY: 1e-4
+  OPTIMIZING_METHOD: sgd
+MODEL:
+  MODEL_NAME: vit_base_patch16_224
+  NUM_CLASSES: 2
+  ARCH: vit
+  LOSS_FUNC: cross_entropy
+  DROPOUT_RATE: 0.5
+TEST:
+  ENABLE: True
+  DATASET: EgoExo
+  BATCH_SIZE: 32
+  NUM_ENSEMBLE_VIEWS: 10
+  NUM_SPATIAL_CROPS: 3
+DATA_LOADER:
+  NUM_WORKERS: 2
+  PIN_MEMORY: True
+NUM_GPUS: 8
+NUM_SHARDS: 1
+RNG_SEED: 0
+OUTPUT_DIR: ./outputs

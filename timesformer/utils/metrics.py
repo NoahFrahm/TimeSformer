@@ -33,7 +33,7 @@ def topks_correct(preds, labels, ks):
         _top_max_k_vals, top_max_k_inds = torch.topk(
             preds, min(max(ks), len(preds[0])), dim=1, largest=True, sorted=True # since we only have 4 labels we can't do top 5 error
         )
-        
+
     # (batch_size, max_k) -> (max_k, batch_size).
     top_max_k_inds = top_max_k_inds.t()
     # (batch_size, ) -> (max_k, batch_size).
@@ -68,6 +68,7 @@ def topk_accuracies(preds, labels, ks):
     num_topks_correct = topks_correct(preds, labels, ks)
     return [(x / preds.size(0)) * 100.0 for x in num_topks_correct]
 
+
 def multitask_topks_correct(preds, labels, ks=(1,)):
     """
     Args:
@@ -98,3 +99,88 @@ def multitask_topks_correct(preds, labels, ks=(1,)):
     ]
 
     return multitask_topks_correct
+
+
+def convert_preds(preds, thresholds=[(0, 3.6), (3.6, 7.4), (7.4, 10)], trg_classes=4):
+    """
+    Converts a continuous number output to a class label with
+    naive rounding (closest class label)
+    """
+    lower_bounds = torch.tensor([threshold[0] for threshold in thresholds])
+    upper_bounds = torch.tensor([threshold[1] for threshold in thresholds])
+    class_labels = torch.zeros_like(preds)
+    
+    for i in range(len(thresholds)):
+        if i < len(thresholds) - 1:
+            # Condition for all but the last threshold range
+            mask = (preds >= lower_bounds[i]) & (preds < upper_bounds[i])
+        else:
+            # Condition for the last threshold range (inclusive upper bound)
+            mask = (preds >= lower_bounds[i]) & (preds <= upper_bounds[i])
+
+        # Assign the class label where the condition is satisfied
+        class_labels[mask] = i
+
+    # class_labels = class_labels.unsqueeze(1).to(preds.device)
+    class_labels = class_labels.to(preds.device)
+    return class_labels
+
+    # class_labels = []
+    # for value in preds:
+    #     for i, (lower, upper) in enumerate(thresholds):
+    #         if i < len(thresholds) - 1:
+    #             if lower <= value < upper:
+    #                 class_labels.append(i)
+    #                 break
+    #         else:
+    #             if lower <= value <= upper:
+    #                 class_labels.append(i)
+    #                 break
+    # class_labels = torch.tensor(class_labels, device=preds.device)
+    # return class_labels.unsqueeze(1)
+
+    # # convert preds from continuous -> class labels
+    # indices = torch.floor(preds).long()
+    # indices = torch.clamp(indices, 0, trg_classes - 1)
+    # return indices.unsqueeze(1)
+
+
+def compute_continuous(preds):
+    num_classes = preds.shape[1]
+    classes = np.array([i for i in range(num_classes)])
+    intervals = {val: (max(0, val - 0.5), min(num_classes - 1, val + 0.5)) for val in range(num_classes)}
+    probabilities = np.array(torch.softmax(preds, dim=1))
+    max_indices = np.array(torch.argmax(preds, dim=1))
+
+    final_vals = []
+    for cur_element, max_index in enumerate(max_indices):
+        interval_size = intervals[max_index][1] - intervals[max_index][0]
+        interval_percentage = 1 - probabilities[cur_element][max_index]
+
+        if interval_percentage <= 0.5:
+            maximum_contribution = interval_size * 2 * interval_percentage
+        elif interval_percentage > 0.5:
+            maximum_contribution = interval_size * interval_percentage
+
+        mask = [i != max_index for i in range(num_classes)]
+        contribution_percentages = probabilities[cur_element][mask] / np.sum(probabilities[cur_element][mask])
+        deltas = classes[mask] - max_index
+        signs = np.sign(deltas)
+        contribution_limits = maximum_contribution * 1 / 2 ** ((num_classes - 1) - np.abs(classes[mask] - max_index))
+        totals = contribution_limits * contribution_percentages * signs
+        value = max_index + np.sum(totals)
+        final_vals.append(value)
+
+    final_vals = torch.tensor(final_vals, device=preds.device).unsqueeze(1)
+    return final_vals
+
+
+def convert_labels(labels, thresholds=[0, 3.6, 7.4, 10]):
+    label_centers = [(thresholds[i] + thresholds[i - 1]) / 2 for i in range(1, len(thresholds))]
+    centered_labels = []
+    for label in labels:
+        centered_labels.append(label_centers[label]) 
+    centered_labels = torch.tensor(centered_labels, device=labels.device)
+    return centered_labels
+
+    

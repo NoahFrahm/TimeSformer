@@ -53,9 +53,10 @@ class Moe(torch.utils.data.Dataset):
             "train",
             "val",
             "test",
-        ], "Split '{}' not supported for PoseGuided".format(mode)
+        ], "Split '{}' not supported for MOE".format(mode)
         self.mode = mode
         self.cfg = cfg
+        self.modalities = cfg.DATA.MODALITIES
 
         self.pose_tensors = preloaded_tensors
 
@@ -86,11 +87,11 @@ class Moe(torch.utils.data.Dataset):
         assert PathManager.exists(path_to_file), "{} dir not found".format(
             path_to_file
         )
-
-        self._path_to_rgb_videos = []
-        self._path_to_pose_videos = []
+        self.modality_names = ["Depth", "Pose", "Flow", "RGB"]
         self._path_to_depth_videos = []
+        self._path_to_pose_videos = []
         self._path_to_flow_videos = []
+        self._path_to_rgb_videos = []
         self._labels = []
         self._spatial_temporal_idx = []
         with PathManager.open(path_to_file, "r") as f:
@@ -100,23 +101,26 @@ class Moe(torch.utils.data.Dataset):
                     len(path_label.split(self.cfg.DATA.PATH_LABEL_SEPARATOR))
                     == 5
                 )
-                pose_video_path, depth_video_path, flow_video_path, rgb_video_path, label = path_label.split(
+                # pose_video_path, depth_video_path, flow_video_path, rgb_video_path, label = path_label.split(
+                #     self.cfg.DATA.PATH_LABEL_SEPARATOR
+                # )
+            
+                depth_video_path, pose_video_path, flow_video_path, rgb_video_path, label = path_label.split(
                     self.cfg.DATA.PATH_LABEL_SEPARATOR
                 )
         
-                # TODO: update this to make different places to save modality video paths
                 for idx in range(self._num_clips):
-                    self._path_to_rgb_videos.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, rgb_video_path)
+                    self._path_to_depth_videos.append(
+                        None if depth_video_path == "NONE" else os.path.join(self.cfg.DATA.PATH_PREFIX, depth_video_path)
                     )
                     self._path_to_pose_videos.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, pose_video_path)
-                    )
-                    self._path_to_depth_videos.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, depth_video_path)
+                        None if pose_video_path == "NONE" else os.path.join(self.cfg.DATA.PATH_PREFIX, pose_video_path)
                     )
                     self._path_to_flow_videos.append(
-                        os.path.join(self.cfg.DATA.PATH_PREFIX, flow_video_path)
+                        None if flow_video_path == "NONE" else os.path.join(self.cfg.DATA.PATH_PREFIX, flow_video_path)
+                    )
+                    self._path_to_rgb_videos.append(
+                        None if rgb_video_path == "NONE" else os.path.join(self.cfg.DATA.PATH_PREFIX, rgb_video_path)
                     )
 
                     self._labels.append(int(label))
@@ -215,27 +219,30 @@ class Moe(torch.utils.data.Dataset):
         # Try to decode and sample a clip from a video. If the video can not be
         # decoded, repeatly find a random video replacement that can be decoded.
         for i_try in range(self._num_retries):
-            rgb_video_container, pose_video_container, flow_video_container, depth_video_container = None, None, None, None
-            
-            try: # rgb video portion
-                rgb_video_container = container.get_video_container(
-                    self._path_to_rgb_videos[index],
-                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
-                    self.cfg.DATA.DECODING_BACKEND,
-                )
+            # rgb_video_container, pose_video_container, flow_video_container, depth_video_container = None, None, None, None
+            depth_video_container, pose_video_container, flow_video_container, rgb_video_container = None, None, None, None
+
+            try: # depth video portion
+                if self._path_to_depth_videos[index] is not None and "Depth" in self.modalities:
+                    depth_video_container = container.get_video_container(
+                        self._path_to_depth_videos[index],
+                        self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                        self.cfg.DATA.DECODING_BACKEND,
+                    )
             except Exception as e:
                 logger.info(
-                    "Failed to load rgb video from {} with error {}".format(
-                        self._path_to_rgb_videos[index], e
+                    "Failed to load depth video from {} with error {}".format(
+                        self._path_to_depth_videos[index], e
                     )
                 )
             
             try: # pose video portion
-                pose_video_container = container.get_video_container(
-                    self._path_to_pose_videos[index],
-                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
-                    self.cfg.DATA.DECODING_BACKEND,
-                )
+                if self._path_to_pose_videos[index] is not None and "Pose" in self.modalities:
+                    pose_video_container = container.get_video_container(
+                        self._path_to_pose_videos[index],
+                        self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                        self.cfg.DATA.DECODING_BACKEND,
+                    )
             except Exception as e:
                 logger.info(
                     "Failed to load pose video from {} with error {}".format(
@@ -244,11 +251,12 @@ class Moe(torch.utils.data.Dataset):
                 )
             
             try: # flow video portion
-                flow_video_container = container.get_video_container(
-                    self._path_to_flow_videos[index],
-                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
-                    self.cfg.DATA.DECODING_BACKEND,
-                )
+                if self._path_to_flow_videos[index] is not None and "Flow" in self.modalities:
+                    flow_video_container = container.get_video_container(
+                        self._path_to_flow_videos[index],
+                        self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                        self.cfg.DATA.DECODING_BACKEND,
+                    )
             except Exception as e:
                 logger.info(
                     "Failed to load flow video from {} with error {}".format(
@@ -256,40 +264,37 @@ class Moe(torch.utils.data.Dataset):
                     )
                 )
 
-            try: # depth video portion
-                depth_video_container = container.get_video_container(
-                    self._path_to_depth_videos[index],
-                    self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
-                    self.cfg.DATA.DECODING_BACKEND,
-                )
+            try: # rgb video portion
+                if self._path_to_rgb_videos[index] is not None and "RGB" in self.modalities:
+                    rgb_video_container = container.get_video_container(
+                        self._path_to_rgb_videos[index],
+                        self.cfg.DATA_LOADER.ENABLE_MULTI_THREAD_DECODE,
+                        self.cfg.DATA.DECODING_BACKEND,
+                    )
             except Exception as e:
                 logger.info(
-                    "Failed to load depth video from {} with error {}".format(
-                        self._path_to_depth_videos[index], e
+                    "Failed to load rgb video from {} with error {}".format(
+                        self._path_to_rgb_videos[index], e
                     )
                 )
             
             # Select a random video if the current video was not able to access.
-            if rgb_video_container is None or pose_video_container is None or depth_video_container is None or flow_video_container is None:
-                
-                if rgb_video_container is None:
-                    logger.warning(
-                        "Failed to load rgb video idx {} from {}; trial {}".format(
-                            index, self._path_to_rgb_videos[index], i_try
-                        )
-                    )
-
-                if pose_video_container is None:
-                    logger.warning(
-                        "Failed to load pose video idx {} from {}; trial {}".format(
-                            index, self._path_to_pose_videos[index], i_try
-                        )
-                    )
+            # if (rgb_video_container is None and 'RGB' in self.modalities) or (pose_video_container is None and 'Pose' in self.modalities) or (depth_video_container is None and 'Depth' in self.modalities) or (flow_video_container is None and 'Flow' in self.modalities):
+            # print(depth_video_container, pose_video_container, flow_video_container, rgb_video_container)
+            # breakpoint()
+            if (depth_video_container is None and 'Depth' in self.modalities) or (pose_video_container is None and 'Pose' in self.modalities) or (flow_video_container is None and 'Flow' in self.modalities) or (rgb_video_container is None and 'RGB' in self.modalities):
 
                 if depth_video_container is None:
                     logger.warning(
                         "Failed to load depth video idx {} from {}; trial {}".format(
                             index, self._path_to_depth_videos[index], i_try
+                        )
+                    )
+                
+                if pose_video_container is None:
+                    logger.warning(
+                        "Failed to load pose video idx {} from {}; trial {}".format(
+                            index, self._path_to_pose_videos[index], i_try
                         )
                     )
 
@@ -299,18 +304,36 @@ class Moe(torch.utils.data.Dataset):
                             index, self._path_to_flow_videos[index], i_try
                         )
                     )
+                
+                if rgb_video_container is None:
+                    logger.warning(
+                        "Failed to load rgb video idx {} from {}; trial {}".format(
+                            index, self._path_to_rgb_videos[index], i_try
+                        )
+                    )
 
                 if self.mode not in ["test"] and i_try > self._num_retries // 2:
                     # let's try another one
-                    index = random.randint(0, len(self._path_to_videos) - 1)
+                    # print(depth_video_container, pose_video_container, flow_video_container, rgb_video_container)
+                    try: index = random.randint(0, len(self._path_to_depth_videos) - 1)
+                    except Exception as e: print(e)
                 continue
             
             # TODO: the video container is a subclip, make sure we extract the pose feature in the same way with the same exact params?
             # aka we need one to one correspondance between frame in video and pose feature
             # pose tokens TODO: create decode call here that can get corresponding pose features
             # Decode video. Meta info is used to perform selective decoding.
+            cur_container = [
+                depth_video_container if 'Depth' in self.modalities else None,
+                pose_video_container if 'Pose' in self.modalities else None,
+                flow_video_container if 'Flow' in self.modalities else None,
+                rgb_video_container if 'RGB' in self.modalities else None,             
+            ]
+            # cur_container = [rgb_video_container, pose_video_container, depth_video_container, flow_video_container]
+            # TODO: make sure output order matches so that we are using correct feature extractor
+
             modality_frames = decoder.multi_video_decode( 
-                [rgb_video_container, pose_video_container, depth_video_container, flow_video_container],
+                cur_container,
                 sampling_rate,
                 self.cfg.DATA.NUM_FRAMES,
                 temporal_sample_index,
@@ -325,8 +348,13 @@ class Moe(torch.utils.data.Dataset):
             # select another video.
             
             modified_frames = []
-            for frames in modality_frames:
+            # names = ["Depth", "Pose", "Flow", "RGB"]
+            for i, frames in enumerate(modality_frames):
                 if frames is None:
+                    # if we do not process this modality None is expected
+                    if self.modality_names[i] not in self.modalities:
+                        modified_frames.append(torch.tensor([]))
+                        continue                        
                     logger.warning(
                         "Failed to decode video idx {} from {}; trial {}".format(
                             index, self._path_to_videos[index], i_try
@@ -372,6 +400,7 @@ class Moe(torch.utils.data.Dataset):
                     ).long(),
                 )
                 modified_frames.append(frames)
+            
             return modified_frames, label, index, {}
         else:
             raise RuntimeError(

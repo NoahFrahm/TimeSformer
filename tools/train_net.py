@@ -90,7 +90,18 @@ def train_epoch(
             preds = model(inputs)
 
         # Compute the loss.
-        loss = loss_fun(preds, labels)
+        if cfg.MODEL.LOSS_FUNC == "mse":
+            preds = preds.squeeze() # this accounts for off dimensions if we only have 1 output class (for mse setup)
+            # convert labels to be center of their ranges, based on thresholds
+            labels -=1 #NOTE: only due to dataset
+            loss_labels = metrics.convert_labels(labels, cfg.MODEL.THRESHOLDS)
+            loss = loss_fun(preds, loss_labels)
+
+            # after calculating loss we can convert continuous predictions into our class setup using thresholds
+            preds = metrics.convert_preds(preds, trg_classes=cfg.MODEL.TRG_NUM_CLASSES)
+        else:
+            loss = loss_fun(preds, labels)
+
 
         if cfg.MIXUP.ENABLED:
             labels = hard_labels
@@ -103,6 +114,8 @@ def train_epoch(
             # Perform the backward pass.
             optimizer.zero_grad()
             loss.backward()
+
+            if cfg.MODEL.LOSS_FUNC == 'mse': torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
             # Update the parameters.
             optimizer.step()
         else:
@@ -116,6 +129,7 @@ def train_epoch(
                     except: 
                         continue
                         print("parameter has no attribute grad")
+                if cfg.MODEL.LOSS_FUNC == 'mse': torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1)
                 optimizer.step()
                 optimizer.zero_grad()
             
@@ -143,6 +157,9 @@ def train_epoch(
                 loss = loss.item()
             else:
                 # Compute the errors.
+                # print("preds:", preds)
+                # print("labels:", labels)
+                # breakpoint()
                 num_topks_correct = metrics.topks_correct(preds, labels, (1, 5))
                 top1_err, top5_err = [
                     (1.0 - x / preds.size(0)) * 100.0 for x in num_topks_correct

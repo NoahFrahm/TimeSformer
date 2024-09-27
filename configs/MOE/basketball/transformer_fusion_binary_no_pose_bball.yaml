@@ -1,0 +1,66 @@
+TRAIN:
+  ENABLE: True
+  DATASET: MOE
+  BATCH_SIZE: 8
+  EVAL_PERIOD: 1
+  CHECKPOINT_PERIOD: 1
+DATA:
+  PATH_TO_DATA_DIR: /playpen-nas-ssd2/data_organization/Dance/moe #place my path to data here
+  CAMERA_VIEW: "full_mini"
+  PATH_PREFIX: /playpen-nas-ssd2/data_organization/Dance/moe/ #my path to data
+  NUM_FRAMES: 8
+  SAMPLING_RATE: 16
+  TRAIN_JITTER_SCALES: [448, 512]
+  TRAIN_CROP_SIZE: 448
+  TEST_CROP_SIZE: 448
+  INPUT_CHANNEL_NUM: [3]
+  MODALITIES: ['Depth', 'Flow', 'RGB']
+TENSORBOARD:
+  ENABLE: True
+  MODEL_VIS:
+    ENABLE: True
+    GRAD_CAM:
+      ENABLE: True
+      USE_TRUE_LABEL: True
+SOLVER:
+  BASE_LR: 0.005
+  LR_POLICY: steps_with_relative_lrs
+  STEPS: [0, 11, 14]
+  LRS: [1, 0.1, 0.01]
+  MAX_EPOCH: 15
+  MOMENTUM: 0.9
+  WEIGHT_DECAY: 1e-4
+  OPTIMIZING_METHOD: sgd
+MODEL:
+  MODEL_NAME: modality_fusion
+  LOSS_FUNC: cross_entropy
+  NUM_CLASSES: 2
+  
+  FUSION_HEAD_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/fusion_head_configs/transformer_fusion.yaml
+  FUSION_FINE_TUNE: True
+  
+  RGB_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_rgb.yaml
+  RGB_FINE_TUNE: False
+  
+  # POSE_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_pose.yaml
+  # POSE_FINE_TUNE: False
+  
+  DEPTH_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_depth.yaml
+  DEPTH_FINE_TUNE: False
+  
+  FLOW_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_flow.yaml
+  FLOW_FINE_TUNE: False
+TEST:
+  ENABLE: True
+  DATASET: MOE
+  BATCH_SIZE: 16
+  NUM_ENSEMBLE_VIEWS: 10
+  NUM_SPATIAL_CROPS: 3
+DATA_LOADER:
+  NUM_WORKERS: 4
+  PIN_MEMORY: True
+NUM_GPUS: 8
+NUM_SHARDS: 1
+RNG_SEED: 0
+OUTPUT_DIR: ./outputs/basketball_binary_class
+ALL_TOKENS: False

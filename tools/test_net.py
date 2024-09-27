@@ -12,6 +12,7 @@ from einops import rearrange, reduce, repeat
 import scipy.io
 
 import timesformer.utils.checkpoint as cu
+import timesformer.utils.metrics as metrics
 import timesformer.utils.distributed as du
 import timesformer.utils.logging as logging
 import timesformer.utils.misc as misc
@@ -95,6 +96,12 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
             # Perform the forward pass.
             preds = model(inputs)
 
+            # convert preds from continuous value to class values
+            if cfg.MODEL.LOSS_FUNC == "mse":
+                # breakpoint()
+                labels -= 1 #NOTE: only because labels 1,2,3
+                preds = metrics.convert_preds(preds, trg_classes=cfg.MODEL.TRG_NUM_CLASSES)
+
             # Gather all the predictions across all the devices to perform ensemble.
             if cfg.NUM_GPUS > 1:
                 preds, labels, video_idx = du.all_gather(
@@ -133,8 +140,8 @@ def perform_test(test_loader, model, test_meter, cfg, writer=None):
             logger.info(
                 "Successfully saved prediction results to {}".format(save_path)
             )
-
-    test_meter.finalize_metrics()
+    
+    test_meter.finalize_metrics()    
     return test_meter
 
 

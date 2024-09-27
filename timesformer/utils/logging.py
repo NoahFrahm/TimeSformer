@@ -93,3 +93,26 @@ def log_json_stats(stats):
     json_stats = simplejson.dumps(stats, sort_keys=True, use_decimal=True)
     logger = get_logger(__name__)
     logger.info("json_stats: {:s}".format(json_stats))
+
+
+def log_truth(ground_truth):
+    """
+    Logs json stats.
+    Args:
+        stats (dict): a dictionary of statistical information to log.
+    """
+    json_gt = simplejson.dumps(ground_truth.tolist())
+    logger = get_logger(__name__)
+    logger.info("json_ground_truth: {:s}".format(json_gt))
+
+
+def log_predictions(predictions):
+    """
+    Logs json stats.
+    Args:
+        stats (dict): a dictionary of statistical information to log.
+    """
+    
+    json_predictions = simplejson.dumps(predictions.tolist())
+    logger = get_logger(__name__)
+    logger.info("json_predictions: {:s}".format(json_predictions))

@@ -29,41 +29,38 @@ SOLVER:
   MAX_EPOCH: 15
   MOMENTUM: 0.9
   WEIGHT_DECAY: 1e-4
-  OPTIMIZING_METHOD: sgd
+  OPTIMIZING_METHOD: adam
 MODEL:
   MODEL_NAME: fusion_four_modality
-
-  FUSION_HEAD_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/fusion_head_configs/moe_fusion_all_tokens.yaml
+  LOSS_FUNC: mse
+  NUM_CLASSES: 1 # need to get this linked to fusion head so we don't need to update in 2 places
+  TRG_NUM_CLASSES: 4 # if we are doing continuous output this is what we want to map to
+  
+  FUSION_HEAD_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/fusion_head_configs/single_output/transformer_fusion.yaml
   FUSION_FINE_TUNE: True
-  FUSION_SAVE_PATH: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/moe_outputs/Fusion
   
   RGB_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_rgb.yaml
   RGB_FINE_TUNE: False
-  RGB_SAVE_PATH: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/moe_outputs/rgb/rgb_model/checkpoints
   
   POSE_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_pose.yaml
   POSE_FINE_TUNE: False
-  POSE_SAVE_PATH: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/moe_outputs/pose/pose_model/checkpoints
   
   DEPTH_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_depth.yaml
   DEPTH_FINE_TUNE: False
-  DEPTH_SAVE_PATH: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/moe_outputs/depth/depth_model/checkpoints
   
   FLOW_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/TimeSformer_divST_16x16_448_flow.yaml
   FLOW_FINE_TUNE: False
-  FLOW_SAVE_PATH: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/moe_outputs/flow/flow_model/checkpoints
 TEST:
   ENABLE: True
   DATASET: MOE
-  BATCH_SIZE: 32
+  BATCH_SIZE: 16
   NUM_ENSEMBLE_VIEWS: 10
   NUM_SPATIAL_CROPS: 3
 DATA_LOADER:
-  NUM_WORKERS: 2
+  NUM_WORKERS: 4
   PIN_MEMORY: True
 NUM_GPUS: 8
 NUM_SHARDS: 1
 RNG_SEED: 0
-ALL_TOKENS: True
-OUTPUT_DIR: ./moe_all_tokens
-CAPACITY_FACTOR: 0.2
+OUTPUT_DIR: ./transformer_fusion_dance_full_mse
+ALL_TOKENS: False
