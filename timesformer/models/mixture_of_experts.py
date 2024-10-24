@@ -304,8 +304,9 @@ class MultiModalityTimeS(nn.Module):
         # fusion head
         self.fusion_head, self.fusion_finetune = fusion_head
 
-        self.all_tokens = cfg.ALL_TOKENS
+        self.get_intermediate = cfg.MODEL.GET_INTERMEDIATE
         self.fusion_method = 'transformer' #TODO: figure this out
+        self.fusion_stage = 'late'
 
     
     def forward(self, x):
@@ -314,30 +315,34 @@ class MultiModalityTimeS(nn.Module):
 
         # breakpoint()
         if self.depth:
-            if self.depth_finetune:depth_tokens = self.depth(depth, get_feature=True, get_all=self.all_tokens)
+            if self.depth_finetune:depth_tokens = self.depth(depth, get_feature=True, get_intermediate=self.get_intermediate)
+            # depth_CLS, depth_intermediate_tokens = self.depth(depth, get_feature=True, get_intermediate=self.get_intermediate)
             else: 
-                with torch.no_grad(): depth_tokens = self.depth(depth, get_feature=True, get_all=self.all_tokens)
+                with torch.no_grad(): depth_tokens = self.depth(depth, get_feature=True, get_intermediate=self.get_intermediate)
                 modality_tokens.append(depth_tokens)
 
         # breakpoint()
         if self.pose:
-            if self.pose_finetune: pose_tokens = self.pose(pose, get_feature=True, get_all=self.all_tokens)
+            if self.pose_finetune: pose_tokens = self.pose(pose, get_feature=True, get_intermediate=self.get_intermediate)
+            # pose_CLS, pose_intermediate_tokens = self.pose(pose, get_feature=True, get_intermediate=self.get_intermediate)
             else:
-                with torch.no_grad(): pose_tokens = self.pose(pose, get_feature=True, get_all=self.all_tokens)
+                with torch.no_grad(): pose_tokens = self.pose(pose, get_feature=True, get_intermediate=self.get_intermediate)
                 modality_tokens.append(pose_tokens)
 
         # breakpoint()
         if self.flow:
-            if self.flow_finetune: flow_tokens = self.flow(flow, get_feature=True, get_all=self.all_tokens)
+            if self.flow_finetune: flow_tokens = self.flow(flow, get_feature=True, get_intermediate=self.get_intermediate)
+            # flow_CLS, flow_intermediate_tokens = self.flow(flow, get_feature=True, get_intermediate=self.get_intermediate)
             else:
-                with torch.no_grad(): flow_tokens = self.flow(flow, get_feature=True, get_all=self.all_tokens)
+                with torch.no_grad(): flow_tokens = self.flow(flow, get_feature=True, get_intermediate=self.get_intermediate)
                 modality_tokens.append(flow_tokens)
 
         # breakpoint()
         if self.rgb:
-            if self.rgb_finetune: rgb_tokens = self.rgb(rgb, get_feature=True, get_all=self.all_tokens)
+            if self.rgb_finetune: rgb_tokens = self.rgb(rgb, get_feature=True, get_intermediate=self.get_intermediate)
+            # rgb_CLS, rgb_intermediate_tokens = self.rgb(rgb, get_feature=True, get_intermediate=self.get_intermediate)
             else:
-                with torch.no_grad(): rgb_tokens = self.rgb(rgb, get_feature=True, get_all=self.all_tokens)
+                with torch.no_grad(): rgb_tokens = self.rgb(rgb, get_feature=True, get_intermediate=self.get_intermediate)
                 modality_tokens.append(rgb_tokens)
 
         combined = torch.stack(tuple(modality_tokens), 0) # modality x batch x 768
@@ -381,6 +386,7 @@ def get_modality_model_settings(cfg):
     checkpoint_paths = ['rgb_model_checkpoints', 'pose_model_checkpoints', 'depth_model_checkpoints', 'flow_model_checkpoints']
     cfg_keys = ['rgb_model', 'pose_model', 'depth_model', 'flow_model']
     modality_model_cfgs = [get_attribute(cfg, 'MODEL.RGB_MODEL_CFG'), get_attribute(cfg, 'MODEL.POSE_MODEL_CFG'), get_attribute(cfg, 'MODEL.DEPTH_MODEL_CFG'),get_attribute(cfg, 'MODEL.FLOW_MODEL_CFG')]
+    # checkpoint_file = [get_attribute(cfg, 'MODEL.RGB_MODEL_CFG'), get_attribute(cfg, 'MODEL.POSE_MODEL_CFG'), get_attribute(cfg, 'MODEL.DEPTH_MODEL_CFG'),get_attribute(cfg, 'MODEL.FLOW_MODEL_CFG')]
     # modality_model_cfgs = [cfg.MODEL.RGB_MODEL_CFG, cfg.MODEL.POSE_MODEL_CFG, cfg.MODEL.DEPTH_MODEL_CFG, cfg.MODEL.FLOW_MODEL_CFG]
     return number_of_shards, shard_id, rng_seed, opts, zip(output_paths, checkpoint_paths, cfg_keys, modality_model_cfgs)
 
@@ -522,7 +528,7 @@ class fusion_four_modality(nn.Module):
 @MODEL_REGISTRY.register()
 class modality_fusion(nn.Module):
     """
-    This setup assumes we dont use pose in the fusion
+    This setup assumes we dont use all 4 modalities in the fusion
     """
     def __init__(self, cfg, **kwargs):
         super().__init__()
@@ -534,6 +540,7 @@ class modality_fusion(nn.Module):
         # Load modality specific Models
         sub_models={}
         for _, checkpoint_path, sub_model_key, modality_cfg in modality_model_settings:
+            modality = sub_model_key.split('_')[0].upper()
             if modality_cfg:
                 print(sub_model_key, "is being used as feature")
                 cur_cfg = indirect_load_config(cfg_file=modality_cfg,
@@ -545,6 +552,11 @@ class modality_fusion(nn.Module):
                                                 checkpoint_path=checkpoint_path
                                                 )
                 cur_sub_model = vanilla_build_model(cur_cfg) #builds the model without any GPU sharding or assignment
+                if get_attribute(cfg, f'MODEL.{modality}_CHECKPOINT'):
+                    cur_cfg['TRAIN']['CHECKPOINT_FILE_PATH'] = get_attribute(cfg, f'MODEL.{modality}_CHECKPOINT')
+                else:
+                    print('using default modality model checkpoint')
+
                 if get_attribute(cur_cfg, 'TRAIN.CHECKPOINT_FILE_PATH'):
                     cu.load_checkpoint(cur_cfg.TRAIN.CHECKPOINT_FILE_PATH, cur_sub_model, data_parallel=False)
                 sub_models[sub_model_key] = (cur_sub_model, get_attribute(cfg, 'TRAIN.FINETUNE') is True)
@@ -555,7 +567,12 @@ class modality_fusion(nn.Module):
             if get_attribute(cfg, 'MODEL.NUM_CLASSES'):
                 fusion_head_cfg['MODEL']['NUM_CLASSES'] = get_attribute(cfg, 'MODEL.NUM_CLASSES')
             else: fusion_head_cfg['MODEL']['NUM_CLASSES'] = 4
-            
+
+            # TODO: add an arg to TimesFormer builds to specify how many tokens to return
+            # if get_attribute(cfg, 'MODEL.INPUT_TOKENS'):
+            #     fusion_head_cfg['MODEL']['INPUT_TOKENS'] = get_attribute(cfg, 'MODEL.INPUT_TOKENS')
+            # else: fusion_head_cfg['MODEL']['INPUT_TOKENS'] = 4
+
         fusion_head = vanilla_build_model(fusion_head_cfg)
 
         if get_attribute(fusion_head_cfg, 'TRAIN.CHECKPOINT_FILE_PATH'): 
@@ -577,9 +594,10 @@ class modality_fusion(nn.Module):
         return x
 
     def train(self, mode=True):
-        # TODO: custom implementation so we can ensure that submodels remain in eval mode
+        # custom implementation so we can ensure that submodels remain in eval mode
         super().train(mode)  # This sets the whole model to training mode
-        # Keep feature extractor modality models in eval mode, TODO: add logic to not force eval if we desire finetuning
-        
+
+        # ensures that the feature extractors we don't want to finetune are set to eval mode
         for sub_model_name, (sub_model, fine_tune) in self.sub_models.items():
             if not fine_tune: sub_model.eval()
+            else: print(f"finetuning {sub_model_name}")

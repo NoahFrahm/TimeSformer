@@ -281,7 +281,6 @@ class Moe(torch.utils.data.Dataset):
             # Select a random video if the current video was not able to access.
             # if (rgb_video_container is None and 'RGB' in self.modalities) or (pose_video_container is None and 'Pose' in self.modalities) or (depth_video_container is None and 'Depth' in self.modalities) or (flow_video_container is None and 'Flow' in self.modalities):
             # print(depth_video_container, pose_video_container, flow_video_container, rgb_video_container)
-            # breakpoint()
             if (depth_video_container is None and 'Depth' in self.modalities) or (pose_video_container is None and 'Pose' in self.modalities) or (flow_video_container is None and 'Flow' in self.modalities) or (rgb_video_container is None and 'RGB' in self.modalities):
 
                 if depth_video_container is None:
@@ -319,6 +318,7 @@ class Moe(torch.utils.data.Dataset):
                     except Exception as e: print(e)
                 continue
             
+            
             # TODO: the video container is a subclip, make sure we extract the pose feature in the same way with the same exact params?
             # aka we need one to one correspondance between frame in video and pose feature
             # pose tokens TODO: create decode call here that can get corresponding pose features
@@ -344,64 +344,64 @@ class Moe(torch.utils.data.Dataset):
                 max_spatial_scale=min_scale,
             )
 
+            # print(self._path_to_depth_videos[index], self._path_to_pose_videos[index], self._path_to_flow_videos[index], self._path_to_rgb_videos[index])
+            # print(depth_video_container, pose_video_container, flow_video_container, rgb_video_container)
+
             # If decoding failed (wrong format, video is too short, and etc),
             # select another video.
-            
-            modified_frames = []
-            # names = ["Depth", "Pose", "Flow", "RGB"]
-            for i, frames in enumerate(modality_frames):
-                if frames is None:
-                    # if we do not process this modality None is expected
-                    if self.modality_names[i] not in self.modalities:
-                        modified_frames.append(torch.tensor([]))
-                        continue                        
-                    logger.warning(
-                        "Failed to decode video idx {} from {}; trial {}".format(
-                            index, self._path_to_videos[index], i_try
-                        )
-                    )
-                    if self.mode not in ["test"] and i_try > self._num_retries // 2:
-                        # let's try another one
-                        index = random.randint(0, len(self._path_to_videos) - 1)
-                    continue
+            # TODO: add this logic back, check egoexo dataloader
+                      
+            modality_tensors = [t for t in modality_frames if t is not None]
+            non_none_indices = [i for i, t in enumerate(modality_frames) if t is not None]
+            batch_sizes = [t.shape[0] for t in modality_tensors]
+            min_width = min(tensor.shape[2] for tensor in modality_tensors) # Determine the minimum width across all tensors
+            modality_tensors = [tensor[:, :, :min_width, :] for tensor in modality_tensors] # Trim each tensor to the minimum width
 
-                label = self._labels[index]
+            # for t in modality_tensors:
+            #     print(t.shape)
+                        
+            try: frames = torch.cat(modality_tensors, dim=0)
+            except: 
+                # TODO: change this to use logger
+                print("shape mismatch")
 
-                # Perform color normalization.
-                frames = utils.tensor_normalize(
-                    frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
-                )
+            label = self._labels[index]
 
-                # T H W C -> C T H W.
-                frames = frames.permute(3, 0, 1, 2)
-                # Perform data augmentation.
-                frames = utils.spatial_sampling(
-                    frames,
-                    spatial_idx=spatial_sample_index,
-                    min_scale=min_scale,
-                    max_scale=max_scale,
-                    crop_size=crop_size,
-                    random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
-                    inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
-                )
+            # Perform color normalization.
+            frames = utils.tensor_normalize(
+                frames, self.cfg.DATA.MEAN, self.cfg.DATA.STD
+            )
 
-                # NOTE: we will be using TimesFormer modality models so no need for this
-                # if not self.cfg.MODEL.ARCH in ['vit']:
-                #     frames = utils.pack_pathway_output(self.cfg, frames)
-                # else:
+            # T H W C -> C T H W.
+            frames = frames.permute(3, 0, 1, 2)
+            # Perform data augmentation.
+            frames = utils.spatial_sampling(
+                frames,
+                spatial_idx=spatial_sample_index,
+                min_scale=min_scale,
+                max_scale=max_scale,
+                crop_size=crop_size,
+                random_horizontal_flip=self.cfg.DATA.RANDOM_FLIP,
+                inverse_uniform_sampling=self.cfg.DATA.INV_UNIFORM_SAMPLE,
+            )
 
-                # Perform temporal sampling from the fast pathway.
-                frames = torch.index_select(
-                    frames,
-                    1,
-                    torch.linspace(
-                        0, frames.shape[1] - 1, self.cfg.DATA.NUM_FRAMES
+            # Perform temporal sampling from the fast pathway.
+            frames = torch.index_select(
+                frames,
+                1,
+                torch.linspace(
+                    0, frames.shape[1] - 1, sum(batch_sizes)
+                    # self.cfg.DATA.NUM_FRAMES, NOTE: this is the old format, is this more safe?
 
-                    ).long(),
-                )
-                modified_frames.append(frames)
-            
-            return modified_frames, label, index, {}
+                ).long(),
+            )
+
+            ungrouped_frames = torch.split(frames, batch_sizes, dim=1)
+            final_tensor_list = [torch.tensor(1)] * 4
+            for idx, tensor in zip(non_none_indices, ungrouped_frames):
+                final_tensor_list[idx] = tensor
+
+            return final_tensor_list, label, index, {}
         else:
             raise RuntimeError(
                 "Failed to fetch video after {} retries.".format(

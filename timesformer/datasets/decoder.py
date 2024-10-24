@@ -134,12 +134,17 @@ def pyav_decode_stream(container, start_pts, end_pts, stream, stream_name, buffe
     # margin pts.
     margin = 1024
     seek_offset = max(start_pts - margin, 0)
+    
 
     container.seek(seek_offset, any_frame=False, backward=True, stream=stream)
     time_base = stream.time_base.denominator #NOTE: new code, this will allow us to map pts to frame
     frames = {}
     buffer_count = 0
     max_pts = 0
+
+    # frames_length = container.streams.video[0].frames
+    # fps = float(container.streams.video[0].average_rate)
+    # breakpoint()
     for frame in container.decode(**stream_name):
         max_pts = max(max_pts, frame.pts)
         if frame.pts < start_pts:

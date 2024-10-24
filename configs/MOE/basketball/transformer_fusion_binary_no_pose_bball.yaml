@@ -40,15 +40,15 @@ MODEL:
   FUSION_FINE_TUNE: True
   
   RGB_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_rgb.yaml
+  RGB_CHECKPOINT: 
   RGB_FINE_TUNE: False
   
-  # POSE_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_pose.yaml
-  # POSE_FINE_TUNE: False
-  
   DEPTH_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_depth.yaml
+  DEPTH_CHECKPOINT: 
   DEPTH_FINE_TUNE: False
   
   FLOW_MODEL_CFG: /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/bball_modality_model_configs/TimeSformer_divST_16x16_448_flow.yaml
+  FLOW_CHECKPOINT: 
   FLOW_FINE_TUNE: False
 TEST:
   ENABLE: True

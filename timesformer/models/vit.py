@@ -246,7 +246,7 @@ class VisionTransformer(nn.Module):
         self.num_classes = num_classes
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
 
-    def forward_features(self, x, get_all=False):
+    def forward_features(self, x, get_intermediate=False):
         B = x.shape[0]
         x, T, W = self.patch_embed(x)
         cls_tokens = self.cls_token.expand(x.size(0), -1, -1)
@@ -288,8 +288,10 @@ class VisionTransformer(nn.Module):
             x = torch.cat((cls_tokens, x), dim=1)
 
         ## Attention blocks
+        intermediate_features = []
         for blk in self.blocks:
             x = blk(x, B, T, W)
+            intermediate_features.append(self.norm(x))
 
         ### Predictions for space-only baseline
         if self.attention_type == 'space_only':
@@ -297,20 +299,25 @@ class VisionTransformer(nn.Module):
             x = torch.mean(x, 1) # averaging predictions for every frame
 
         x = self.norm(x)
-        if get_all:
-            number_of_tokens = 500
-            total_tokens = x.shape[1]
-            step_size = (total_tokens - 1) // (number_of_tokens - 1)
-            indices = torch.arange(0, number_of_tokens) * step_size
-            indices = torch.clamp(indices, 0, total_tokens - 1)
-            result = x[:, indices, :]
-            return result # only grab ~500 tokens
+        # print(len(intermediate_features))
+        if get_intermediate:
+            # here we can grab desired last features
+            intermediate_features = intermediate_features[-5:]
+            return x[:, 0], intermediate_features
+            # number_of_tokens = 500
+            # total_tokens = x.shape[1]
+            # step_size = (total_tokens - 1) // (number_of_tokens - 1)
+            # indices = torch.arange(0, number_of_tokens) * step_size
+            # indices = torch.clamp(indices, 0, total_tokens - 1)
+            # result = x[:, indices, :]
+            # return result # only grab ~500 tokens
         return x[:, 0] # only the CLS token
 
-    def forward(self, x, get_feature=False, get_all=False):
-        if get_feature: 
-            return self.forward_features(x, get_all)
-            # return self.forward_features(x, get_full_features=True)
+    def forward(self, x, get_feature=False, get_intermediate=False):
+        if get_feature or get_intermediate: 
+            if get_intermediate: return self.forward_features(x, get_intermediate)
+            else: return self.forward_features(x)
+            # else: return self.forward_features(x), []
         x = self.forward_features(x)
         x = self.head(x)
         return x
@@ -342,8 +349,8 @@ class vit_base_patch16_224(nn.Module):
         if self.pretrained:
             load_pretrained(self.model, num_classes=self.model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter, img_size=cfg.DATA.TRAIN_CROP_SIZE, num_patches=self.num_patches, attention_type=self.attention_type, pretrained_model=pretrained_model)
 
-    def forward(self, x, get_feature=False, get_all=False):
-        x = self.model(x, get_feature, get_all)
+    def forward(self, x, get_feature=False, get_intermediate=False):
+        x = self.model(x, get_feature, get_intermediate)
         return x
  
 @MODEL_REGISTRY.register()
@@ -358,6 +365,6 @@ class TimeSformer(nn.Module):
         self.num_patches = (img_size // patch_size) * (img_size // patch_size)
         if self.pretrained:
             load_pretrained(self.model, num_classes=self.model.num_classes, in_chans=kwargs.get('in_chans', 3), filter_fn=_conv_filter, img_size=img_size, num_frames=num_frames, num_patches=self.num_patches, attention_type=self.attention_type, pretrained_model=pretrained_model)
-    def forward(self, x, get_feature=False, get_all=False):
-        x = self.model(x, get_feature, get_all)
+    def forward(self, x, get_feature=False, get_intermediate=False):
+        x = self.model(x, get_feature, get_intermediate)
         return x

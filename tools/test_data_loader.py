@@ -4,6 +4,9 @@ from torch.utils.data import DataLoader
 from timesformer.utils.parser import load_config, parse_args
 from timesformer.models import build_model, fusion_four_modality
 import torch
+import os
+from torchvision.transforms.functional import to_pil_image
+from PIL import Image
 
 def test_dataloader():
     args = parse_args()
@@ -15,16 +18,34 @@ def test_dataloader():
     dataloader = DataLoader(dataset, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=True)
     print("data loader constructed")
 
-    model = build_model(cfg)
-    print("model built")
+    # model = build_model(cfg)
+    # print("model built")
     
     # Check data loading
     for i,  (inputs, labels, video_idx, meta) in enumerate(dataloader):
         print("iteration:", i, "video index:", video_idx)
         for i in range(len(inputs)):
             inputs[i] = inputs[i].cuda(non_blocking=True)
-        breakpoint()
-        guess = model(inputs)
+
+        # save tensor as image for testing
+        save_prefix = '/playpen-nas-ssd3/nofrahm/proficiency/figures/dataload_visualized'
+        depth_save_path = os.path.join(save_prefix, 'depth.png')
+        flow_save_path = os.path.join(save_prefix, 'flow.png')
+        rgb_save_path = os.path.join(save_prefix, 'rgb.png')
+        save_paths = [depth_save_path, '', flow_save_path, rgb_save_path]
+
+        for i, save_path in enumerate(save_paths):
+            for j in range(8):
+                try:
+                    selected_frame = inputs[i][0, :, j, :, :]
+                    selected_frame = (selected_frame - selected_frame.min()) / (selected_frame.max() - selected_frame.min()) * 255
+                    selected_frame = selected_frame.to(torch.uint8) 
+                    image = to_pil_image(selected_frame)
+                    image.save(f"{save_path.split('.')[0]}{j}.png")
+                except:
+                    continue
+        break
+        # guess = model(inputs)
 
 def test_model_arch():
     args = parse_args()
@@ -53,64 +74,18 @@ if __name__ == "__main__":
         test_model_arch()
 
 
-# CUDA_VISIBLE_DEVICES=0 python tools/run_net.py \
-#     --cfg /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/basketball/transformer_fusion_binary_no_pose_bball.yaml \
-#     DATA.PATH_TO_DATA_DIR /playpen-nas-ssd2/data_organization/Basketball/moe_no_pose             \
-#     DATA.CAMERA_VIEW int_v_late          \
-#     NUM_GPUS 1  \
-#     TRAIN.BATCH_SIZE 8             \
-#     MODEL.RGB_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_rgb.yaml       \      
-#     MODEL.DEPTH_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_ \
-#     model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_depth.yaml         \    
-#     MODEL.FLOW_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_flow.yaml      \       
-#     OUTPUT_DIR /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/output/Basketball/Basketball_int_v_late_no_pose_fusion    
-
-# # Old Version
-# def test_dataloader():
-
-#     args = parse_args()
-#     # if args.num_shards > 1:
-#     #    args.output_dir = str(args.job_dir)
-#     cfg = load_config(args)
-
-#     # loaded_tensors = []
-
-#     # Create the dataset
-#     dataset = Poseguided(cfg, 'train')
-#     # dataset = Egoexo(cfg, 'train')
-
-#     # # Create the DataLoader
-#     # dataset._construct_loader()
-#     # tensor_paths = dataset._path_to_pose_tensors
-        
-#     # loaded_tensors = {tensor_path: torch.load(tensor_path, map_location='cpu').detach().squeeze() for tensor_path in tensor_paths}
-#     # for k in loaded_tensors.keys():
-#     #     loaded_tensors[k].share_memory_()
-
-#     # print("shared memory created")
-
-#     # dataset = Poseguided(cfg, 'train', preloaded_tensors=loaded_tensors)
-#     dataloader = DataLoader(dataset, batch_size=cfg.TRAIN.BATCH_SIZE, shuffle=True)
-#     print("data loader constructed")
-
-#     # path_to_feature = '/playpen-nas-ssd2/saved_tensors/dance/normal/upenn_0720_Dance_3_7_frame_aligned_videos_gp03/full_features.pt'
-#     # loaded_thing = torch.load(path_to_feature)
-#     model = build_model(cfg)
-#     print("model built")
-    
-#     # Check data loading
-#     for i,  (inputs, labels, video_idx, meta) in enumerate(dataloader):
-#         print("iteration:", i, "video index:", video_idx)
-#         for i in range(len(inputs)):
-#             inputs[i] = inputs[i].cuda(non_blocking=True)
-        
-#         guess = model(inputs)
-#         breakpoint()
-
-#     # Measure performance
-#     start_time = time.time()
-#     for i, batch in enumerate(dataloader):
-#         pass
-#     end_time = time.time()
-#     print(f"Data loading took {end_time - start_time:.2f} seconds")
-
+# CUDA_VISIBLE_DEVICES=0 python tools/test_data_loader.py --cfg /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/transformer_fusion_bball.yaml \
+#     DATA.PATH_TO_DATA_DIR /playpen-nas-ssd2/data_organization/Basketball_no_pose/moe_no_pose \
+#     DATA.CAMERA_VIEW int_v_late \
+#     SOLVER.MAX_EPOCH 15 \
+#     NUM_GPUS 1 \
+#     TRAIN.BATCH_SIZE 1 \
+#     TEST.BATCH_SIZE 16 \
+#     DATA_LOADER.NUM_WORKERS 1 \
+#     MODEL.RGB_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_rgb.yaml \
+#     MODEL.RGB_CHECKPOINT /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_reshape/Basketball-reshape/Basketball_rgb_reshape_int_v_late/checkpoints/checkpoint_epoch_00015.pyth \
+#     MODEL.DEPTH_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_depth.yaml \
+#     MODEL.DEPTH_CHECKPOINT /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_reshape/Basketball-reshape/Basketball_rgb_reshape_int_v_late/checkpoints/checkpoint_epoch_00015.pyth \
+#     MODEL.FLOW_MODEL_CFG /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/configs/MOE/modality_model_configs/Basketball/int_v_late/TimeSformer_divST_16x16_448_flow.yaml \
+#     MODEL.FLOW_CHECKPOINT /playpen-nas-ssd2/asdunnbe/TimeSformer_egoexo/full_reshape/Basketball-reshape/Basketball_flow_reshape_int_v_late/checkpoints/checkpoint_epoch_00015.pyth \
+#     OUTPUT_DIR /playpen-nas-ssd3/nofrahm/proficiency/TimeSformer/fusion-output/Basketball/Basketball_int_v_late_no_pose_fusion                                    

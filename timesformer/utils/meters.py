@@ -596,7 +596,7 @@ class ValMeter(object):
             top5_err = self.num_top5_mis / self.num_samples
             self.min_top1_err = min(self.min_top1_err, top1_err)
             self.min_top5_err = min(self.min_top5_err, top5_err)
-
+ 
             stats["top1_err"] = top1_err
             stats["top5_err"] = top5_err
             stats["min_top1_err"] = self.min_top1_err

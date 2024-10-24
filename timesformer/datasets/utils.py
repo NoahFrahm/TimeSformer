@@ -159,6 +159,7 @@ def spatial_sampling(
         frames, _ = transform.uniform_crop(frames, crop_size, spatial_idx)
     return frames
 
+
 def spatial_sampling_2crops(
     frames,
     spatial_idx=-1,
